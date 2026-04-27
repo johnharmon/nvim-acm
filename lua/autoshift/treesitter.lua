@@ -8,17 +8,14 @@ local M = {}
 local required = { "yaml", "gotmpl" }
 local optional = { "helm" }
 
+-- A parser is available if Neovim can find a parser/<lang>.{so,dll} on its
+-- runtimepath. This matches what nvim-treesitter itself does and avoids the
+-- API instability across Neovim versions.
 local function parser_available(lang)
-  local ok, parsers = pcall(require, "nvim-treesitter.parsers")
-  if ok and parsers and parsers.has_parser then
-    return parsers.has_parser(lang)
-  end
-  if vim.treesitter and vim.treesitter.language and vim.treesitter.language.get_lang_for_filetype then
-    -- Newer Neovim — try loading the parser directly.
-    local lok = pcall(vim.treesitter.language.add, lang)
-    return lok
-  end
-  return false
+  local matches = vim.api.nvim_get_runtime_file("parser/" .. lang .. ".so", false)
+  if #matches > 0 then return true end
+  matches = vim.api.nvim_get_runtime_file("parser/" .. lang .. ".dll", false)
+  return #matches > 0
 end
 
 -- Check returns (missing_required, missing_optional) lists.
