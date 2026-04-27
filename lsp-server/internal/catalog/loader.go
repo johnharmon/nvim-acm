@@ -67,8 +67,10 @@ func (l *Loader) Resolve(version string, extras UserExtras) Resolved {
 	}
 
 	helmFuncs := []TemplateFunction{}
+	helmCtxValues := []ExportedValue{}
 	if l.helmCatalog != nil {
 		helmFuncs = l.helmCatalog.Functions
+		helmCtxValues = l.helmCatalog.ContextValues
 	}
 	goBuiltins := []TemplateFunction{}
 	if l.goBuiltins != nil {
@@ -78,6 +80,7 @@ func (l *Loader) Resolve(version string, extras UserExtras) Resolved {
 	return Resolved{
 		AcmVersion:            acm.AcmVersion,
 		HelmFunctions:         dedupeFuncs(append(helmFuncs, extras.HelmFunctions...)),
+		HelmContextValues:     dedupeValues(helmCtxValues),
 		HubFunctions:          dedupeFuncs(append(acm.HubFunctions, extras.HubFunctions...)),
 		ManagedFunctions:      dedupeFuncs(append(acm.ManagedFunctions, extras.ManagedFunctions...)),
 		SprigFunctions:        dedupeFuncs(append(acm.SprigFunctions, extras.SprigFunctions...)),

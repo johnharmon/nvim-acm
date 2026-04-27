@@ -295,5 +295,38 @@
       "description": "Converts a value to an integer.",
       "source": "sprig"
     }
+  ],
+  "contextValues": [
+    { "name": ".Release.Name", "type": "string", "description": "The release name.", "source": "helm" },
+    { "name": ".Release.Namespace", "type": "string", "description": "The namespace the release is being installed into.", "source": "helm" },
+    { "name": ".Release.IsUpgrade", "type": "bool", "description": "True if the current operation is an upgrade or rollback.", "source": "helm" },
+    { "name": ".Release.IsInstall", "type": "bool", "description": "True if the current operation is an install.", "source": "helm" },
+    { "name": ".Release.Revision", "type": "int", "description": "Revision number of this release. 1 on first install, increments per upgrade and rollback.", "source": "helm" },
+    { "name": ".Release.Service", "type": "string", "description": "The service performing the release. Always 'Helm'.", "source": "helm" },
+
+    { "name": ".Chart.Name", "type": "string", "description": "Name from the chart's Chart.yaml.", "source": "helm" },
+    { "name": ".Chart.Version", "type": "string", "description": "Version from the chart's Chart.yaml.", "source": "helm" },
+    { "name": ".Chart.AppVersion", "type": "string", "description": "appVersion from the chart's Chart.yaml.", "source": "helm" },
+    { "name": ".Chart.Description", "type": "string", "description": "description from the chart's Chart.yaml.", "source": "helm" },
+    { "name": ".Chart.Type", "type": "string", "description": "type from the chart's Chart.yaml (application or library).", "source": "helm" },
+    { "name": ".Chart.Annotations", "type": "map[string]string", "description": "Annotations from the chart's Chart.yaml.", "source": "helm" },
+    { "name": ".Chart.Dependencies", "type": "[]Dependency", "description": "Dependencies declared in the chart's Chart.yaml.", "source": "helm" },
+
+    { "name": ".Files.Get", "type": "func(path string) string", "description": "Function to get file contents as a string by path inside the chart.", "source": "helm" },
+    { "name": ".Files.GetBytes", "type": "func(path string) []byte", "description": "Function to get file contents as []byte.", "source": "helm" },
+    { "name": ".Files.Glob", "type": "func(pattern string) Files", "description": "Returns a Files object matching pattern.", "source": "helm" },
+    { "name": ".Files.Lines", "type": "func(path string) []string", "description": "Reads a file and returns its lines.", "source": "helm" },
+    { "name": ".Files.AsConfig", "type": "func() string", "description": "Returns the contents of all files as a YAML map suitable for ConfigMap.data.", "source": "helm" },
+    { "name": ".Files.AsSecrets", "type": "func() string", "description": "Returns the contents of all files as base64-encoded YAML map suitable for Secret.data.", "source": "helm" },
+
+    { "name": ".Capabilities.KubeVersion", "type": "KubeVersion", "description": "Kubernetes version info for the target cluster.", "source": "helm" },
+    { "name": ".Capabilities.KubeVersion.Version", "type": "string", "description": "Full Kubernetes version string, e.g. v1.27.3.", "source": "helm" },
+    { "name": ".Capabilities.KubeVersion.Major", "type": "string", "description": "Kubernetes major version.", "source": "helm" },
+    { "name": ".Capabilities.KubeVersion.Minor", "type": "string", "description": "Kubernetes minor version.", "source": "helm" },
+    { "name": ".Capabilities.APIVersions", "type": "APIVersions", "description": "Set of API versions known by the target cluster.", "source": "helm" },
+    { "name": ".Capabilities.HelmVersion", "type": "HelmVersion", "description": "Helm version info.", "source": "helm" },
+
+    { "name": ".Template.Name", "type": "string", "description": "Path of the current template, e.g. mychart/templates/mytemplate.yaml.", "source": "helm" },
+    { "name": ".Template.BasePath", "type": "string", "description": "Base path of the current chart's templates directory.", "source": "helm" }
   ]
 }

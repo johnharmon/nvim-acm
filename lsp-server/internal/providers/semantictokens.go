@@ -60,6 +60,7 @@ func SemanticTokens(in SemanticTokensInput) *protocol.SemanticTokens {
 	tokens = appendHubKeywords(tokens, in.Text)
 	tokens = appendInsideExpressions(tokens, in.Text, vocab)
 	tokens = appendInsideHubSpans(tokens, in.Text, vocab)
+	tokens = appendInsideManagedSpans(tokens, in.Text, vocab)
 
 	sort.Slice(tokens, func(i, j int) bool { return tokens[i].offset < tokens[j].offset })
 	tokens = dedupeByOffset(tokens)
@@ -241,6 +242,17 @@ func appendInsideExpressions(tokens []rawToken, text string, vocab vocabulary) [
 
 func appendInsideHubSpans(tokens []rawToken, text string, vocab vocabulary) []rawToken {
 	for _, span := range context.FindHubSpans(text) {
+		if span.ContentEnd <= span.ContentStart {
+			continue
+		}
+		inner := text[span.ContentStart:span.ContentEnd]
+		tokens = tokenizeContent(tokens, inner, span.ContentStart, vocab)
+	}
+	return tokens
+}
+
+func appendInsideManagedSpans(tokens []rawToken, text string, vocab vocabulary) []rawToken {
+	for _, span := range context.FindManagedSpans(text) {
 		if span.ContentEnd <= span.ContentStart {
 			continue
 		}

@@ -45,13 +45,15 @@ type AcmCatalog struct {
 }
 
 type HelmCatalog struct {
-	Source    string             `json:"source"`
-	Functions []TemplateFunction `json:"functions"`
+	Source        string             `json:"source"`
+	Functions     []TemplateFunction `json:"functions"`
+	ContextValues []ExportedValue    `json:"contextValues,omitempty"`
 }
 
 type Resolved struct {
 	AcmVersion            string
 	HelmFunctions         []TemplateFunction
+	HelmContextValues     []ExportedValue
 	HubFunctions          []TemplateFunction
 	ManagedFunctions      []TemplateFunction
 	SprigFunctions        []TemplateFunction

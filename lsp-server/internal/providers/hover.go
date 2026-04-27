@@ -51,6 +51,7 @@ func Hover(in HoverInput) *protocol.Hover {
 	case context.LayerHelm:
 		funcs = append(funcs, in.Catalog.HelmFunctions...)
 		funcs = append(funcs, in.Catalog.GoBuiltins...)
+		vars = append(vars, in.Catalog.HelmContextValues...)
 	case context.LayerHub:
 		funcs = append(funcs, in.Catalog.HubFunctions...)
 		funcs = append(funcs, in.Catalog.SprigFunctions...)

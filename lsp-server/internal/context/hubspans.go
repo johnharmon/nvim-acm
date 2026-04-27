@@ -27,6 +27,13 @@ var (
 	escapedOpen = regexp.MustCompile(`\{\{-?\s*"\{\{hub-?"\s*-?\}\}`)
 	// Whole second escape expression: {{ "hub}}" }}.
 	escapedClose = regexp.MustCompile(`\{\{-?\s*"-?hub\}\}"\s*-?\}\}`)
+
+	// Managed-cluster-side escape expressions, structurally identical to the
+	// hub versions but without the "hub" keyword. Together they emit literal
+	// `{{ ... }}` after Helm renders, which the managed-cluster ACM controller
+	// processes at policy-evaluation time.
+	managedEscapedOpen  = regexp.MustCompile(`\{\{-?\s*"\{\{-?"\s*-?\}\}`)
+	managedEscapedClose = regexp.MustCompile(`\{\{-?\s*"-?\}\}"\s*-?\}\}`)
 )
 
 // FindHubSpans returns all hub-template content regions in the text.
@@ -61,6 +68,63 @@ func FindHubSpans(text string) []HubSpan {
 func IsInsideAnyHubSpan(spans []HubSpan, offset int) bool {
 	for _, s := range spans {
 		if offset >= s.ContentStart && offset <= s.ContentEnd {
+			return true
+		}
+	}
+	return false
+}
+
+// ManagedSpan delimits the content portion of a managed-cluster escape pair
+// `{{ "{{" }} ... {{ "}}" }}`. Unlike hub spans it has no direct/escaped
+// distinction — managed templating only ever uses the escape form because
+// a bare `{{` would be consumed by Helm at chart-render time.
+type ManagedSpan struct {
+	ContentStart int
+	ContentEnd   int
+}
+
+// FindManagedSpans returns all managed-template content regions in the text.
+// Spans nested inside hub spans are suppressed so the same content isn't
+// processed twice.
+func FindManagedSpans(text string) []ManagedSpan {
+	hubSpans := FindHubSpans(text)
+	out := []ManagedSpan{}
+	for _, m := range managedEscapedOpen.FindAllStringIndex(text, -1) {
+		closer := findManagedEscapedCloser(text, m[1])
+		if closer == -1 {
+			continue
+		}
+		span := ManagedSpan{ContentStart: m[1], ContentEnd: closer}
+		if isManagedSpanInsideHub(hubSpans, span) {
+			continue
+		}
+		out = append(out, span)
+	}
+	return out
+}
+
+// IsInsideAnyManagedSpan reports whether offset lies within any managed-span
+// content range.
+func IsInsideAnyManagedSpan(spans []ManagedSpan, offset int) bool {
+	for _, s := range spans {
+		if offset >= s.ContentStart && offset <= s.ContentEnd {
+			return true
+		}
+	}
+	return false
+}
+
+func findManagedEscapedCloser(text string, from int) int {
+	loc := managedEscapedClose.FindStringIndex(text[from:])
+	if loc == nil {
+		return -1
+	}
+	return from + loc[0]
+}
+
+func isManagedSpanInsideHub(hubSpans []HubSpan, m ManagedSpan) bool {
+	for _, h := range hubSpans {
+		if m.ContentStart >= h.ContentStart && m.ContentEnd <= h.ContentEnd {
 			return true
 		}
 	}
