@@ -130,8 +130,13 @@ function M.status()
 end
 
 -- Highlight-group link table: per-language LSP semantic groups → @-namespace
--- tree-sitter captures most colorschemes already style. Used by
--- apply_default_highlights() with default = true, so theme rules win.
+-- tree-sitter captures most colorschemes already style. The language-specific
+-- groups (.yaml, .helm) are set unconditionally because Neovim's built-in
+-- vim.lsp.semantic_tokens module otherwise links them through a no-fg chain
+-- (.helm → @lsp.type.variable → @variable, where @variable usually has no
+-- explicit color either) and you fall through to whatever treesitter set.
+-- The base @-namespace targets are still respectable so themes that style
+-- @variable/@function/etc. give us colors automatically.
 local default_links = {
   ["@lsp.type.variable.yaml"]                          = "@variable",
   ["@lsp.type.variable.helm"]                          = "@variable",
@@ -157,7 +162,7 @@ local default_links = {
 
 local function apply_default_highlights()
   for group, link in pairs(default_links) do
-    vim.api.nvim_set_hl(0, group, { link = link, default = true })
+    vim.api.nvim_set_hl(0, group, { link = link })
   end
 end
 
@@ -170,11 +175,22 @@ function M.setup(opts)
 
   if cfg.apply_default_highlights then
     apply_default_highlights()
-    -- Re-apply on colorscheme change so theme switches don't blow our defaults
+    -- Re-apply on colorscheme change so theme switches don't blow our links
     -- away (vim.cmd colorscheme clears the highlight namespace).
     vim.api.nvim_create_autocmd("ColorScheme", {
       callback = apply_default_highlights,
       desc = "Re-register autoshift LSP semantic-token highlight links",
+    })
+    -- Re-apply when the LSP attaches; vim.lsp.semantic_tokens registers its
+    -- own default-true links at that point that would otherwise win the race.
+    vim.api.nvim_create_autocmd("LspAttach", {
+      callback = function(args)
+        local client = vim.lsp.get_client_by_id(args.data.client_id)
+        if client and client.name == "autoshift-lsp" then
+          apply_default_highlights()
+        end
+      end,
+      desc = "Re-apply autoshift highlight links after LSP attach",
     })
   end
 
