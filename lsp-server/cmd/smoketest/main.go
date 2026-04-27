@@ -1,4 +1,4 @@
-// Smoke test: spawns autoshift-lsp, exercises diagnostics + completion +
+// Smoke test: spawns acm-ls, exercises diagnostics + completion +
 // hover + signature help against canned fixtures, and reports pass/fail.
 package main
 
@@ -82,7 +82,7 @@ type runner struct {
 }
 
 func main() {
-	binary := "./autoshift-lsp"
+	binary := "./acm-ls"
 	if len(os.Args) > 1 && (strings.HasPrefix(os.Args[1], "./") || strings.HasPrefix(os.Args[1], "/")) {
 		binary = os.Args[1]
 	}
@@ -257,7 +257,7 @@ func main() {
 
 func defaultSettings() map[string]any {
 	return map[string]any{
-		"autoshift": map[string]any{
+		"acm": map[string]any{
 			"enabled": true,
 			"acm":     map[string]any{"version": "2.15"},
 			"rules": map[string]any{

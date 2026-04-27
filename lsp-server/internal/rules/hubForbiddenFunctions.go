@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/autoshift/lsp-server/internal/context"
+	"github.com/acm-ls/lsp-server/internal/context"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -46,7 +46,7 @@ func (hubForbiddenFunctions) Run(ctx Context) []protocol.Diagnostic {
 			fnName := body[m[0]:m[1]]
 			sev := severity.ToLSP()
 			code := protocol.IntegerOrString{Value: "hub-forbidden-functions"}
-			source := "autoshift"
+			source := "acm"
 			out = append(out, protocol.Diagnostic{
 				Range: protocol.Range{
 					Start: startPos,

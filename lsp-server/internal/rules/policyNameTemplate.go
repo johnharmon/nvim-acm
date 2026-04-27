@@ -5,9 +5,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/autoshift/lsp-server/internal/context"
-	"github.com/autoshift/lsp-server/internal/parsedoc"
-	"github.com/autoshift/lsp-server/internal/values"
+	"github.com/acm-ls/lsp-server/internal/context"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
+	"github.com/acm-ls/lsp-server/internal/values"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -93,7 +93,7 @@ func (r policyNameTemplate) Run(ctx Context) []protocol.Diagnostic {
 				} else {
 					sev := overflowSeverity.ToLSP()
 					code := protocol.IntegerOrString{Value: "policy-name-template"}
-					source := "autoshift"
+					source := "acm"
 					out = append(out, protocol.Diagnostic{
 						Range:    nodeRange,
 						Severity: &sev,
@@ -118,7 +118,7 @@ func (r policyNameTemplate) Run(ctx Context) []protocol.Diagnostic {
 		}
 		sev := severity.ToLSP()
 		code := protocol.IntegerOrString{Value: "policy-name-template"}
-		source := "autoshift"
+		source := "acm"
 		out = append(out, protocol.Diagnostic{
 			Range:    nodeRange,
 			Severity: &sev,

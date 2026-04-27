@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/autoshift/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/catalog"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 

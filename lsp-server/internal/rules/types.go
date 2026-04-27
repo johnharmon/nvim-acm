@@ -1,7 +1,7 @@
 package rules
 
 import (
-	"github.com/autoshift/lsp-server/internal/parsedoc"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -30,7 +30,7 @@ func (s Severity) ToLSP() protocol.DiagnosticSeverity {
 }
 
 // Settings is a generic bag the LSP client (Neovim) passes via initializationOptions
-// or workspace/configuration. Keys mirror the VSCode extension's autoshift.* schema.
+// or workspace/configuration. Keys mirror the VSCode extension's acm.* schema.
 type Settings map[string]any
 
 // Get walks a dotted path through the settings tree.

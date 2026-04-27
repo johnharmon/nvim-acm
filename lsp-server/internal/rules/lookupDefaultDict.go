@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/autoshift/lsp-server/internal/context"
+	"github.com/acm-ls/lsp-server/internal/context"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -43,7 +43,7 @@ func (lookupDefaultDict) Run(ctx Context) []protocol.Diagnostic {
 			absEnd := span.ContentStart + callEnd
 			sev := severity.ToLSP()
 			code := protocol.IntegerOrString{Value: "lookup-default-dict"}
-			source := "autoshift"
+			source := "acm"
 			out = append(out, protocol.Diagnostic{
 				Range: protocol.Range{
 					Start: offsetToPosition(ctx.Text, absStart),

@@ -1,4 +1,4 @@
-; AutoShift treesitter highlight overlay for helm files.
+; acm-ls treesitter highlight overlay for helm files.
 ; The helm tree-sitter grammar already handles Helm/Go-template syntax
 ; at the chart level. This overlay surfaces ACM-specific identifiers and
 ; exported context values that the helm grammar treats as ordinary names.

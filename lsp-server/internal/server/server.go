@@ -4,20 +4,20 @@ import (
 	"path/filepath"
 	"sync"
 
-	"github.com/autoshift/lsp-server/internal/catalog"
-	"github.com/autoshift/lsp-server/internal/parsedoc"
-	"github.com/autoshift/lsp-server/internal/providers"
-	"github.com/autoshift/lsp-server/internal/rules"
-	"github.com/autoshift/lsp-server/internal/values"
+	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
+	"github.com/acm-ls/lsp-server/internal/providers"
+	"github.com/acm-ls/lsp-server/internal/rules"
+	"github.com/acm-ls/lsp-server/internal/values"
 	"github.com/tliron/glsp"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 	"github.com/tliron/glsp/server"
 )
 
-const Name = "autoshift-lsp"
+const Name = "acm-ls"
 const Version = "0.1.0"
 
-// Server is the autoshift LSP server.
+// Server is the acm-ls LSP server.
 type Server struct {
 	handler   *protocol.Handler
 	rpcServer *server.Server

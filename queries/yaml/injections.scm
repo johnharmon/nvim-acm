@@ -1,4 +1,4 @@
-; AutoShift treesitter injection: parse Go-template syntax inside YAML
+; acm-ls treesitter injection: parse Go-template syntax inside YAML
 ; block_scalar bodies under ACM-specific keys.
 ;
 ; Why this matters: YAML's grammar otherwise consumes block_scalar content

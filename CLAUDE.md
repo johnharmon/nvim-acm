@@ -34,7 +34,7 @@ no `Co-Authored-By` trailer.
 - **Treesitter queries** — yaml→gotmpl injection (the bracket-matching
   fix that was unreachable in the VSCode TextMate extension) plus
   highlight overlays for ACM identifiers in `helm` and `gotmpl`.
-- **Highlight links** — `lua/autoshift/init.lua` registers
+- **Highlight links** — `lua/acm-ls/init.lua` registers
   `@lsp.type.<type>[.<modifier>].<lang>` → `@variable`/`@function`/etc.
   links so colorschemes that style the standard tree-sitter captures
   give us colors automatically. Re-applied on `LspAttach` and
@@ -57,8 +57,8 @@ nvim-acm/
 │       ├── rules/                 # 5 diagnostic rules
 │       ├── providers/             # completion, hover, signaturehelp, semantictokens
 │       └── server/server.go       # glsp wiring
-├── lua/autoshift/                 # init.lua (setup), treesitter.lua (parser check)
-├── plugin/autoshift.lua           # auto-load guard
+├── lua/acm-ls/                    # init.lua (setup), treesitter.lua (parser check)
+├── plugin/acm-ls.lua              # auto-load guard
 ├── queries/{yaml,gotmpl,helm}/    # treesitter overlays
 └── scripts/install.sh             # build + symlink
 ```
@@ -74,7 +74,7 @@ nvim-acm/
 | Tweak layer detection | `internal/context/detector.go` — has comprehensive test in `detector_test.go` |
 | Tweak hub/managed span finder | `internal/context/hubspans.go` |
 | Adjust semantic token classification | `internal/providers/semantictokens.go` |
-| Change highlight links | `lua/autoshift/init.lua` `default_links` table |
+| Change highlight links | `lua/acm-ls/init.lua` `default_links` table |
 | Treesitter query | `queries/<lang>/<kind>.scm` |
 
 ## Build / test / iterate
@@ -90,24 +90,24 @@ cd lsp-server && go test ./...
 
 # integration smoketest (spawns binary, runs all 5 LSP capabilities)
 cd lsp-server
-go build -o autoshift-lsp .
+go build -o acm-ls .
 go build -o smoketest ./cmd/smoketest/
-./smoketest ./autoshift-lsp
+./smoketest ./acm-ls
 ```
 
 Inside Neovim after a binary rebuild:
 
 ```vim
-:AutoshiftRestart    " kill + re-attach LSP, picks up new binary
-:AutoshiftStatus     " confirm PID + root_dir
-:Lazy reload autoshift   " if you edited Lua
+:AcmRestart    " kill + re-attach LSP, picks up new binary
+:AcmStatus     " confirm PID + root_dir
+:Lazy reload acm-ls   " if you edited Lua
 ```
 
 ## Known wrinkles
 
 - **noexec /home** — parser detection uses three probes
   (`nvim_get_runtime_file`, nvim-treesitter API, `vim.treesitter.language.add`)
-  in `lua/autoshift/treesitter.lua`. Adding a fourth detection path?
+  in `lua/acm-ls/treesitter.lua`. Adding a fourth detection path?
   Update `parser_available` AND `diagnose()`.
 - **Bracket matching** in escape patterns — solved on the Neovim side
   via treesitter injection. Same problem on the VSCode side is parked.
@@ -121,7 +121,7 @@ Inside Neovim after a binary rebuild:
 
 - Real Neovim end-to-end testing in production usage (user just started
   using it).
-- Possibly add `:AutoshiftSync` user command to push catalog changes if
+- Possibly add `:AcmSync` user command to push catalog changes if
   catalog editing becomes frequent.
 
 ## Don'ts

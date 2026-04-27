@@ -1,12 +1,12 @@
--- AutoShift LSP client for Neovim.
--- Starts the autoshift-lsp Go binary as an LSP server and attaches it to
--- buffers under autoshift/policy directories.
+-- acm-ls LSP client for Neovim.
+-- Starts the acm-ls Go binary as an LSP server and attaches it to
+-- buffers under ACM/policy directories.
 
 local M = {}
 
 local default_config = {
-  -- Path to the autoshift-lsp binary. Default assumes it's on PATH.
-  cmd = { "autoshift-lsp" },
+  -- Path to the acm-ls binary. Default assumes it's on PATH.
+  cmd = { "acm-ls" },
   -- File patterns the LSP attaches to.
   filetypes = { "yaml", "helm" },
   -- Root directory markers — first match wins. The LSP receives this as rootUri.
@@ -16,7 +16,7 @@ local default_config = {
   -- Register default highlight links for the LSP semantic tokens this server
   -- emits. Uses Neovim's standard tree-sitter capture groups (@variable,
   -- @function, @keyword, ...) as link targets, so any colorscheme that styles
-  -- those groups gives autoshift content distinct colors out of the box.
+  -- those groups gives acm-ls content distinct colors out of the box.
   -- Set false to leave highlight setup entirely to your colorscheme.
   apply_default_highlights = true,
   -- Per-group highlight overrides. Keys are LSP semantic-token groups
@@ -32,7 +32,7 @@ local default_config = {
   -- Settings forwarded to the server via initializationOptions and
   -- workspace/didChangeConfiguration. Mirrors the VSCode extension's schema.
   settings = {
-    autoshift = {
+    acm = {
       enabled = true,
       acm = { version = "2.15" },
       rules = {
@@ -71,9 +71,9 @@ local function get_clients()
   -- vim.lsp.get_clients is the modern name (Neovim 0.10+); fall back to
   -- get_active_clients for older versions.
   if vim.lsp.get_clients then
-    return vim.lsp.get_clients({ name = "autoshift-lsp" })
+    return vim.lsp.get_clients({ name = "acm-ls" })
   end
-  return vim.lsp.get_active_clients({ name = "autoshift-lsp" })
+  return vim.lsp.get_active_clients({ name = "acm-ls" })
 end
 
 local function start_for_buffer(buf)
@@ -81,7 +81,7 @@ local function start_for_buffer(buf)
   local root = find_root(buf, cfg.root_markers)
   if active_clients[root] == nil then
     active_clients[root] = vim.lsp.start({
-      name = "autoshift-lsp",
+      name = "acm-ls",
       cmd = cfg.cmd,
       root_dir = root,
       init_options = cfg.settings,
@@ -97,7 +97,7 @@ local function start_for_buffer(buf)
   end
 end
 
---- Stop every running autoshift-lsp client and re-attach to the active buffer.
+--- Stop every running acm-ls client and re-attach to the active buffer.
 --- Useful after rebuilding the binary so Neovim picks up the new server.
 function M.restart()
   for _, c in ipairs(get_clients()) do
@@ -112,7 +112,7 @@ function M.restart()
   end
 end
 
---- Stop every running autoshift-lsp client without restarting.
+--- Stop every running acm-ls client without restarting.
 function M.stop()
   for _, c in ipairs(get_clients()) do
     pcall(function() c:stop(true) end)
@@ -120,16 +120,16 @@ function M.stop()
   active_clients = {}
 end
 
---- Print one line per running autoshift-lsp client (id, root_dir, cmd).
+--- Print one line per running acm-ls client (id, root_dir, cmd).
 function M.status()
   local clients = get_clients()
   if #clients == 0 then
-    print("autoshift-lsp: no clients running")
+    print("acm-ls: no clients running")
     return
   end
   for _, c in ipairs(clients) do
     print(string.format(
-      "autoshift-lsp[id=%d] root=%s cmd=%s",
+      "acm-ls[id=%d] root=%s cmd=%s",
       c.id,
       c.config.root_dir or "?",
       vim.inspect(c.config.cmd)
@@ -184,7 +184,7 @@ function M.setup(opts)
   cfg = vim.tbl_deep_extend("force", default_config, opts or {})
 
   if cfg.warn_missing_parsers then
-    pcall(function() require("autoshift.treesitter").notify_missing() end)
+    pcall(function() require("acm-ls.treesitter").notify_missing() end)
   end
 
   if cfg.apply_default_highlights then
@@ -193,18 +193,18 @@ function M.setup(opts)
     -- away (vim.cmd colorscheme clears the highlight namespace).
     vim.api.nvim_create_autocmd("ColorScheme", {
       callback = apply_default_highlights,
-      desc = "Re-register autoshift LSP semantic-token highlight links",
+      desc = "Re-register acm-ls LSP semantic-token highlight links",
     })
     -- Re-apply when the LSP attaches; vim.lsp.semantic_tokens registers its
     -- own default-true links at that point that would otherwise win the race.
     vim.api.nvim_create_autocmd("LspAttach", {
       callback = function(args)
         local client = vim.lsp.get_client_by_id(args.data.client_id)
-        if client and client.name == "autoshift-lsp" then
+        if client and client.name == "acm-ls" then
           apply_default_highlights()
         end
       end,
-      desc = "Re-apply autoshift highlight links after LSP attach",
+      desc = "Re-apply acm-ls highlight links after LSP attach",
     })
   end
 
@@ -213,12 +213,12 @@ function M.setup(opts)
     callback = function(args) start_for_buffer(args.buf) end,
   })
 
-  vim.api.nvim_create_user_command("AutoshiftRestart", function() M.restart() end,
-    { desc = "Stop and re-attach the autoshift-lsp client(s)" })
-  vim.api.nvim_create_user_command("AutoshiftStop", function() M.stop() end,
-    { desc = "Stop the autoshift-lsp client(s) without restarting" })
-  vim.api.nvim_create_user_command("AutoshiftStatus", function() M.status() end,
-    { desc = "Print autoshift-lsp client status" })
+  vim.api.nvim_create_user_command("AcmRestart", function() M.restart() end,
+    { desc = "Stop and re-attach the acm-ls client(s)" })
+  vim.api.nvim_create_user_command("AcmStop", function() M.stop() end,
+    { desc = "Stop the acm-ls client(s) without restarting" })
+  vim.api.nvim_create_user_command("AcmStatus", function() M.status() end,
+    { desc = "Print acm-ls client status" })
 end
 
 return M

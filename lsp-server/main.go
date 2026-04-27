@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/autoshift/lsp-server/internal/server"
+	"github.com/acm-ls/lsp-server/internal/server"
 	"github.com/tliron/commonlog"
 	_ "github.com/tliron/commonlog/simple"
 )
@@ -13,7 +13,7 @@ import (
 func main() {
 	commonlog.Configure(1, nil)
 
-	catalogsDir := os.Getenv("AUTOSHIFT_CATALOGS_DIR")
+	catalogsDir := os.Getenv("ACM_CATALOGS_DIR")
 	if catalogsDir == "" {
 		exe, err := os.Executable()
 		if err == nil {
@@ -22,7 +22,7 @@ func main() {
 	}
 	s := server.New(server.Config{CatalogsDir: catalogsDir})
 	if err := s.RunStdio(); err != nil {
-		fmt.Fprintln(os.Stderr, "autoshift-lsp:", err)
+		fmt.Fprintln(os.Stderr, "acm-ls:", err)
 		os.Exit(1)
 	}
 }

@@ -1,4 +1,4 @@
-; AutoShift treesitter highlight overlay for gotmpl content.
+; acm-ls treesitter highlight overlay for gotmpl content.
 ; Layered on top of the gotmpl parser's built-in highlights. Adds
 ; ACM-specific identifiers (fromSecret, protect, skipObject, etc.) and
 ; exported context values (.ManagedClusterName, .Object, etc.) as

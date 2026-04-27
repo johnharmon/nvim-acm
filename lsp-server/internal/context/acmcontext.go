@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/autoshift/lsp-server/internal/parsedoc"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 )
 
 // ACMKinds is the set of Kubernetes kinds that signal an ACM-policy file.

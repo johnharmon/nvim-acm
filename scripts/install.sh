@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the autoshift-lsp Go binary and symlink the Lua plugin into
+# Build the acm-ls Go binary and symlink the Lua plugin into
 # Neovim's native pack path. Idempotent — re-run after pulling updates.
 #
 # Usage:
@@ -33,7 +33,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-LINK_TARGET="${PACK_DIR}/autoshift"
+LINK_TARGET="${PACK_DIR}/acm-ls"
 
 if [[ "${UNINSTALL}" -eq 1 ]]; then
   if [[ -L "${LINK_TARGET}" ]]; then
@@ -50,12 +50,12 @@ if ! command -v go >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "building autoshift-lsp..."
+echo "building acm-ls..."
 (
   cd "${LSP_SRC}"
-  go build -o autoshift-lsp .
+  go build -o acm-ls .
 )
-BIN="${LSP_SRC}/autoshift-lsp"
+BIN="${LSP_SRC}/acm-ls"
 echo "built: ${BIN}"
 
 if [[ "${BUILD_ONLY}" -eq 1 ]]; then
@@ -84,7 +84,7 @@ cat <<EOF
 
 Done. To activate, add to your init.lua:
 
-  require("autoshift").setup({
+  require("acm-ls").setup({
     cmd = { "${BIN}" },
   })
 

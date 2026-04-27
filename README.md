@@ -38,8 +38,8 @@ scripts/install.sh
 Then in `~/.config/nvim/init.lua`:
 
 ```lua
-require("autoshift").setup({
-  cmd = { "/absolute/path/to/nvim-acm/lsp-server/autoshift-lsp" },
+require("acm-ls").setup({
+  cmd = { "/absolute/path/to/nvim-acm/lsp-server/acm-ls" },
 })
 ```
 
@@ -51,7 +51,7 @@ treesitter parser:
 ```
 
 Open a `.yaml` or helm-detected policy file. `:LspInfo` should list
-`autoshift-lsp` attached. `:Inspect` (Neovim 0.10+) on a hub function
+`acm-ls` attached. `:Inspect` (Neovim 0.10+) on a hub function
 shows the semantic token classification.
 
 ## Architecture
@@ -72,10 +72,10 @@ nvim-acm/                          # standard nvim plugin layout
 │       ├── rules/                 # 5 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
-├── lua/autoshift/
+├── lua/acm-ls/
 │   ├── init.lua                   # setup() registers vim.lsp.start on FileType
 │   └── treesitter.lua             # parser-availability check
-├── plugin/autoshift.lua           # auto-load guard
+├── plugin/acm-ls.lua              # auto-load guard
 ├── queries/                       # treesitter overlays
 │   ├── yaml/injections.scm        # inject gotmpl into block_scalar content
 │   ├── gotmpl/highlights.scm      # ACM-distinct funcs/values
@@ -106,13 +106,13 @@ nvim-acm/                          # standard nvim plugin layout
 
 ### What the LSP server reads at startup
 
-- **`<binary-dir>/catalogs/`** (or `$AUTOSHIFT_CATALOGS_DIR` if set):
+- **`<binary-dir>/catalogs/`** (or `$ACM_CATALOGS_DIR` if set):
   - `acm-<version>.json` — hub funcs, managed funcs, sprig subset, exported values
   - `helm.json` — helm-layer functions
   - `go-builtins.json` — Go template builtins (index, len, eq, …)
 - **Per-document at runtime**: chart-local `values.yaml` (cached),
   plus any overlay files configured via
-  `autoshift.values.overlayFiles`.
+  `acm.values.overlayFiles`.
 
 The catalog files in `lsp-server/catalogs/` are the source of truth
 for this repo. The sibling VSCode extension (`autoshift-plugin`) keeps
@@ -124,19 +124,19 @@ its own copy and is updated separately.
 
 | Key | Default | Notes |
 |---|---|---|
-| `cmd` | `{ "autoshift-lsp" }` | Path or argv to launch the binary. |
+| `cmd` | `{ "acm-ls" }` | Path or argv to launch the binary. |
 | `filetypes` | `{ "yaml", "helm" }` | Filetypes to attach the LSP to. |
 | `root_markers` | `{ "Chart.yaml", ".git", "policies" }` | Walked upward; first match wins. |
 | `semantic_tokens` | `true` | Calls `vim.lsp.semantic_tokens.start` on attach (Neovim 0.10+). |
 | `warn_missing_parsers` | `true` | Notify if `gotmpl`/`yaml` treesitter parsers aren't installed. |
 | `settings` | see `init.lua` | Forwarded to the server via `initializationOptions`. |
 
-The `settings.autoshift.*` tree mirrors the VSCode extension's
+The `settings.acm.*` tree mirrors the VSCode extension's
 `package.json` configuration schema, including all rule knobs:
 
 ```lua
 settings = {
-  autoshift = {
+  acm = {
     enabled = true,
     acm = { version = "2.15" },
     rules = {
@@ -212,7 +212,7 @@ matches.
 scripts/install.sh --build-only
 
 # inside Neovim
-:AutoshiftRestart
+:AcmRestart
 ```
 
 ## Adding a new diagnostic rule
@@ -224,7 +224,7 @@ Rules live under `lsp-server/internal/rules/`. Create
 package rules
 
 import (
-    "github.com/autoshift/lsp-server/internal/parsedoc"
+    "github.com/acm-ls/lsp-server/internal/parsedoc"
     protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -243,7 +243,7 @@ func (myRule) Run(ctx Context) []protocol.Diagnostic {
         // ... your logic ...
         sev := severity.ToLSP()
         code := protocol.IntegerOrString{Value: "my-rule"}
-        source := "autoshift"
+        source := "acm"
         out = append(out, protocol.Diagnostic{
             Range:    parsedoc.RangeFromNode(d.NameNode),
             Severity: &sev,
@@ -298,9 +298,9 @@ Currently exercised:
 
 ```fish
 cd lsp-server
-go build -o autoshift-lsp .
+go build -o acm-ls .
 go build -o smoketest ./cmd/smoketest/
-./smoketest ./autoshift-lsp
+./smoketest ./acm-ls
 ```
 
 The smoketest spawns the binary, sends `initialize` +
@@ -313,7 +313,7 @@ without launching Neovim.
 After running `scripts/install-nvim.sh`, open a policy YAML in nvim:
 
 ```vim
-:LspInfo                         " confirm autoshift-lsp is attached
+:LspInfo                         " confirm acm-ls is attached
 :lua vim.lsp.buf.hover()         " on a hub function
 :lua vim.lsp.buf.completion()    " or trigger via your completion plugin
 :Inspect                         " (Neovim 0.10+) shows semantic-token info
@@ -344,7 +344,7 @@ documentation, specifically §1.2 Template Processing. Each entry
 carries a `source` field referring back to the section that defines
 it. When ACM 2.16 ships, drop a new `acm-2.16.json` file alongside —
 the loader auto-discovers any `acm-*.json` and lets users select
-their version via `autoshift.acm.version`.
+their version via `acm.acm.version`.
 
 A long-term goal: a CI step that regenerates these catalogs from a
 fresh PDF + a checkout of `stolostron/go-template-utils`. For now,

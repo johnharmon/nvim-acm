@@ -1,4 +1,4 @@
-module github.com/autoshift/lsp-server
+module github.com/acm-ls/lsp-server
 
 go 1.25.1
 

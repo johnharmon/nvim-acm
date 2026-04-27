@@ -5,8 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/autoshift/lsp-server/internal/catalog"
-	"github.com/autoshift/lsp-server/internal/context"
+	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/context"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 

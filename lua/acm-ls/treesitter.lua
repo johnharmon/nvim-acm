@@ -70,7 +70,7 @@ function M.check()
 end
 
 -- Diagnose returns a table reporting which probe paths each parser hit.
--- Useful for `:lua print(vim.inspect(require("autoshift.treesitter").diagnose()))`.
+-- Useful for `:lua print(vim.inspect(require("acm-ls.treesitter").diagnose()))`.
 function M.diagnose()
   local langs = {}
   for _, l in ipairs(required) do table.insert(langs, l) end
@@ -92,15 +92,15 @@ function M.notify_missing()
   local missing_required, missing_optional = M.check()
   if #missing_required > 0 then
     vim.notify(
-      "AutoShift: missing required treesitter parsers: " .. table.concat(missing_required, ", ")
+      "acm-ls: missing required treesitter parsers: " .. table.concat(missing_required, ", ")
         .. "\nInstall with :TSInstall " .. table.concat(missing_required, " ")
-        .. "\nIf they are installed, run :lua print(vim.inspect(require('autoshift.treesitter').diagnose())) for detection details.",
+        .. "\nIf they are installed, run :lua print(vim.inspect(require('acm-ls.treesitter').diagnose())) for detection details.",
       vim.log.levels.WARN
     )
   end
   if #missing_optional > 0 then
     vim.notify(
-      "AutoShift: optional treesitter parsers not found: " .. table.concat(missing_optional, ", ")
+      "acm-ls: optional treesitter parsers not found: " .. table.concat(missing_optional, ", ")
         .. " (install with :TSInstall " .. table.concat(missing_optional, " ") .. " for richer highlighting)",
       vim.log.levels.INFO
     )

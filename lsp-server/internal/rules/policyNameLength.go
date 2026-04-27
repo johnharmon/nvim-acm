@@ -3,7 +3,7 @@ package rules
 import (
 	"fmt"
 
-	"github.com/autoshift/lsp-server/internal/parsedoc"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
@@ -36,7 +36,7 @@ func (policyNameLength) Run(ctx Context) []protocol.Diagnostic {
 		}
 		sev := severity.ToLSP()
 		code := protocol.IntegerOrString{Value: "policy-name-length"}
-		source := "autoshift"
+		source := "acm"
 		out = append(out, protocol.Diagnostic{
 			Range:    parsedoc.RangeFromNode(d.NameNode),
 			Severity: &sev,

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/autoshift/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/catalog"
 )
 
 // minimal catalog: just enough to make hub-funcs and exported values
