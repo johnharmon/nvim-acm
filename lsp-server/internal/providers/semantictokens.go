@@ -211,6 +211,53 @@ var hubKeywordPatterns = []struct {
 	{regexp.MustCompile(`\b(hub)\}\}"`), 1},
 }
 
+// appendStringInnerDelims tags `{{`/`{{-` and `}}`/`-}}` runs that sit at the
+// very start or end of a string literal's contents. Used by ACM escape
+// patterns the chart renders into runtime template delimiters:
+//
+//	{{ "{{hub" }} ... {{ "hub}}" }}     hub escape, split form
+//	{{ "{{hub fn args hub}}" }}         hub escape, single form
+//	{{ "{{" }} ... {{ "}}" }}           managed escape
+//
+// The whole literal is still a tString token (already emitted by the caller);
+// these overlap as keyword hints so the brace runs read alongside `hub` /
+// `if` / `range`. quoteStart/quoteEnd are the byte offsets *within `inner`*
+// of the opening quote and one past the closing quote.
+func appendStringInnerDelims(tokens []rawToken, inner string, innerStart, quoteStart, quoteEnd int) []rawToken {
+	contentStart := quoteStart + 1
+	contentEnd := quoteEnd - 1
+	if contentEnd <= contentStart {
+		return tokens
+	}
+	if n := openDelimRun(inner, contentStart, contentEnd); n > 0 {
+		tokens = append(tokens, rawToken{offset: innerStart + contentStart, length: n, tokenType: tKeyword})
+	}
+	if n := closeDelimRun(inner, contentStart, contentEnd); n > 0 {
+		tokens = append(tokens, rawToken{offset: innerStart + contentEnd - n, length: n, tokenType: tKeyword})
+	}
+	return tokens
+}
+
+func openDelimRun(s string, start, end int) int {
+	if end-start < 2 || s[start] != '{' || s[start+1] != '{' {
+		return 0
+	}
+	if end-start >= 3 && s[start+2] == '-' {
+		return 3
+	}
+	return 2
+}
+
+func closeDelimRun(s string, start, end int) int {
+	if end-start < 2 || s[end-1] != '}' || s[end-2] != '}' {
+		return 0
+	}
+	if end-start >= 3 && s[end-3] == '-' {
+		return 3
+	}
+	return 2
+}
+
 func appendHubKeywords(tokens []rawToken, text string) []rawToken {
 	for _, p := range hubKeywordPatterns {
 		for _, m := range p.re.FindAllStringSubmatchIndex(text, -1) {
@@ -283,6 +330,7 @@ func tokenizeContent(tokens []rawToken, inner string, innerStart int, vocab voca
 				i++
 			}
 			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i)
 		case c == '`':
 			start := i
 			i++
@@ -293,6 +341,7 @@ func tokenizeContent(tokens []rawToken, inner string, innerStart int, vocab voca
 				i++
 			}
 			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i)
 		case isDigit(c):
 			start := i
 			for i < len(inner) && (isDigit(inner[i]) || inner[i] == '.') {

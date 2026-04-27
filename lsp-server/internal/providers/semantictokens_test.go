@@ -95,8 +95,9 @@ func TestVocabulary_OverlapExclusion(t *testing.T) {
 }
 
 func TestSemanticTokens_StringContents(t *testing.T) {
-	// Verify that escape-pattern inner {{ doesn't generate operator tokens
-	// — the entire `"{{hub-"` should be one string token.
+	// Verify that escape-pattern inner {{ doesn't disturb the operator
+	// emission for the OUTER `{{`/`}}` span delimiters — we still expect
+	// exactly 4 operator-tokens of length 2 (the outer pairs).
 	text := `{{ "{{hub-" }} content {{ "hub}}" }}`
 	tokens := SemanticTokens(SemanticTokensInput{Text: text, Catalog: miniCatalog()})
 	if tokens == nil {
@@ -124,6 +125,62 @@ func TestSemanticTokens_StringContents(t *testing.T) {
 			b.WriteString("] ")
 		}
 		t.Errorf("expected 4 length-2 operator tokens (outer brackets only), got %d. data=%s", outerOps, b.String())
+	}
+}
+
+func TestSemanticTokens_StringInnerDelimiters(t *testing.T) {
+	// Escape patterns that render to ACM/managed delimiters at runtime.
+	// The inner `{{`/`}}` (and `{{-`/`-}}` trim variants) at the start or
+	// end of a string literal's contents should emit length-2 or length-3
+	// keyword tokens overlapping the string token. Outer `{{`/`}}` keep
+	// their operator classification; helm/treesitter colors those.
+	cases := []struct {
+		name     string
+		text     string
+		wantKw23 int // expected count of length-2 keyword tokens at start/end of strings (i.e. inner {{ or }})
+	}{
+		{"hub split form", `{{ "{{hub" }} {{ "hub}}" }}`, 2},
+		{"managed escape", `{{ "{{" }} body {{ "}}" }}`, 2},
+		{"hub single form", `{{ "{{hub fn args hub}}" }}`, 2},
+		{"trim variants", `{{ "{{-hub" }} body {{ "hub-}}" }}`, 0}, // length 3, not 2
+		{"plain string, no inner delims", `{{ printf "hello world" }}`, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			toks := SemanticTokens(SemanticTokensInput{Text: tc.text, Catalog: miniCatalog()})
+			if toks == nil {
+				t.Fatalf("expected tokens")
+			}
+			got := 0
+			for i := 0; i+4 < len(toks.Data); i += 5 {
+				if toks.Data[i+3] == tKeyword && toks.Data[i+2] == 2 {
+					got++
+				}
+			}
+			if got != tc.wantKw23 {
+				t.Errorf("length-2 keyword tokens: got %d, want %d", got, tc.wantKw23)
+			}
+		})
+	}
+}
+
+func TestSemanticTokens_StringInnerDelimitersTrim(t *testing.T) {
+	// Trim variants emit length-3 keyword tokens for `{{-` and `-}}`.
+	// `hub` itself is also length-3 keyword via appendHubKeywords, so the
+	// expected count includes both contributions: 2 brace runs + 2 `hub`s.
+	text := `{{ "{{-hub" }} body {{ "hub-}}" }}`
+	toks := SemanticTokens(SemanticTokensInput{Text: text, Catalog: miniCatalog()})
+	if toks == nil {
+		t.Fatalf("expected tokens")
+	}
+	len3 := 0
+	for i := 0; i+4 < len(toks.Data); i += 5 {
+		if toks.Data[i+3] == tKeyword && toks.Data[i+2] == 3 {
+			len3++
+		}
+	}
+	if len3 != 4 {
+		t.Errorf("length-3 keyword tokens (2 trim braces + 2 hubs): got %d, want 4", len3)
 	}
 }
 
