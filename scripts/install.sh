@@ -11,7 +11,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 LSP_SRC="${REPO_ROOT}/lsp-server"
-PLUGIN_SRC="${REPO_ROOT}/plugin"
+PLUGIN_SRC="${REPO_ROOT}"
 DEFAULT_PACK_DIR="${HOME}/.local/share/nvim/site/pack/local/start"
 
 PACK_DIR="${DEFAULT_PACK_DIR}"

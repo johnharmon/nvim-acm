@@ -57,7 +57,7 @@ shows the semantic token classification.
 ## Architecture
 
 ```
-nvim-acm/
+nvim-acm/                          # standard nvim plugin layout
 ├── lsp-server/                    # Go binary, single-file deploy
 │   ├── main.go                    # entry — runs server over stdio
 │   ├── catalogs/                  # JSON: ACM funcs + helm + go-builtins
@@ -72,15 +72,15 @@ nvim-acm/
 │       ├── rules/                 # 5 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
-└── plugin/                        # Lua-only — thin LSP client wrapper
-    ├── lua/autoshift/
-    │   ├── init.lua               # setup() registers vim.lsp.start on FileType
-    │   └── treesitter.lua         # parser-availability check
-    ├── plugin/autoshift.lua       # auto-load guard
-    └── queries/                   # treesitter overlays
-        ├── yaml/injections.scm    # inject gotmpl into block_scalar content
-        ├── gotmpl/highlights.scm  # ACM-distinct funcs/values
-        └── helm/highlights.scm    # same overlay for helm filetype
+├── lua/autoshift/
+│   ├── init.lua                   # setup() registers vim.lsp.start on FileType
+│   └── treesitter.lua             # parser-availability check
+├── plugin/autoshift.lua           # auto-load guard
+├── queries/                       # treesitter overlays
+│   ├── yaml/injections.scm        # inject gotmpl into block_scalar content
+│   ├── gotmpl/highlights.scm      # ACM-distinct funcs/values
+│   └── helm/highlights.scm        # same overlay for helm filetype
+└── scripts/install.sh             # build + symlink
 ```
 
 ### Request flow
