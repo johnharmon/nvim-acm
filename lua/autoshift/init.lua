@@ -13,6 +13,12 @@ local default_config = {
   root_markers = { "Chart.yaml", ".git", "policies" },
   -- Whether to enable LSP semantic tokens for attached buffers (Neovim 0.9+).
   semantic_tokens = true,
+  -- Register default highlight links for the LSP semantic tokens this server
+  -- emits. Uses Neovim's standard tree-sitter capture groups (@variable,
+  -- @function, @keyword, ...) as link targets, so any colorscheme that styles
+  -- those groups gives autoshift content distinct colors out of the box.
+  -- Set false to leave highlight setup entirely to your colorscheme.
+  apply_default_highlights = true,
   -- Warn on startup if required treesitter parsers are missing.
   warn_missing_parsers = true,
   -- Settings forwarded to the server via initializationOptions and
@@ -123,11 +129,53 @@ function M.status()
   end
 end
 
+-- Highlight-group link table: per-language LSP semantic groups → @-namespace
+-- tree-sitter captures most colorschemes already style. Used by
+-- apply_default_highlights() with default = true, so theme rules win.
+local default_links = {
+  ["@lsp.type.variable.yaml"]                          = "@variable",
+  ["@lsp.type.variable.helm"]                          = "@variable",
+  ["@lsp.type.property.yaml"]                          = "@property",
+  ["@lsp.type.property.helm"]                          = "@property",
+  ["@lsp.type.property.defaultLibrary.readonly.yaml"]  = "@variable.builtin",
+  ["@lsp.type.property.defaultLibrary.readonly.helm"]  = "@variable.builtin",
+  ["@lsp.type.function.yaml"]                          = "@function",
+  ["@lsp.type.function.helm"]                          = "@function",
+  ["@lsp.type.function.defaultLibrary.yaml"]           = "@function.builtin",
+  ["@lsp.type.function.defaultLibrary.helm"]           = "@function.builtin",
+  ["@lsp.type.keyword.yaml"]                           = "@keyword",
+  ["@lsp.type.keyword.helm"]                           = "@keyword",
+  ["@lsp.type.string.yaml"]                            = "@string",
+  ["@lsp.type.string.helm"]                            = "@string",
+  ["@lsp.type.number.yaml"]                            = "@number",
+  ["@lsp.type.number.helm"]                            = "@number",
+  ["@lsp.type.operator.yaml"]                          = "@operator",
+  ["@lsp.type.operator.helm"]                          = "@operator",
+  ["@lsp.type.comment.yaml"]                           = "@comment",
+  ["@lsp.type.comment.helm"]                           = "@comment",
+}
+
+local function apply_default_highlights()
+  for group, link in pairs(default_links) do
+    vim.api.nvim_set_hl(0, group, { link = link, default = true })
+  end
+end
+
 function M.setup(opts)
   cfg = vim.tbl_deep_extend("force", default_config, opts or {})
 
   if cfg.warn_missing_parsers then
     pcall(function() require("autoshift.treesitter").notify_missing() end)
+  end
+
+  if cfg.apply_default_highlights then
+    apply_default_highlights()
+    -- Re-apply on colorscheme change so theme switches don't blow our defaults
+    -- away (vim.cmd colorscheme clears the highlight namespace).
+    vim.api.nvim_create_autocmd("ColorScheme", {
+      callback = apply_default_highlights,
+      desc = "Re-register autoshift LSP semantic-token highlight links",
+    })
   end
 
   vim.api.nvim_create_autocmd("FileType", {
