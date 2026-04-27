@@ -19,6 +19,14 @@ local default_config = {
   -- those groups gives autoshift content distinct colors out of the box.
   -- Set false to leave highlight setup entirely to your colorscheme.
   apply_default_highlights = true,
+  -- Per-group highlight overrides. Keys are LSP semantic-token groups
+  -- (e.g. "@lsp.type.variable.yaml"), values are any spec accepted by
+  -- nvim_set_hl ({ fg = "#bb9af7" }, { link = "Identifier" }, ...). These
+  -- replace the corresponding default link entirely and are re-applied on
+  -- ColorScheme and LspAttach so they survive theme changes and the
+  -- competing default-true links Neovim's stock semantic-token module
+  -- registers at attach time. Groups not in default_links are also set.
+  highlights = {},
   -- Warn on startup if required treesitter parsers are missing.
   warn_missing_parsers = true,
   -- Settings forwarded to the server via initializationOptions and
@@ -161,8 +169,14 @@ local default_links = {
 }
 
 local function apply_default_highlights()
+  local overrides = (cfg and cfg.highlights) or {}
   for group, link in pairs(default_links) do
-    vim.api.nvim_set_hl(0, group, { link = link })
+    vim.api.nvim_set_hl(0, group, overrides[group] or { link = link })
+  end
+  for group, spec in pairs(overrides) do
+    if default_links[group] == nil then
+      vim.api.nvim_set_hl(0, group, spec)
+    end
   end
 end
 
