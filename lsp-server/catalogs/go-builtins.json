@@ -1,0 +1,173 @@
+{
+  "source": "Go text/template built-in functions, available in every Go template context (helm, hub, managed)",
+  "functions": [
+    {
+      "name": "index",
+      "signature": "index(collection any, keys ...any) any",
+      "params": [
+        { "name": "collection", "type": "any", "description": "Map, slice, or array." },
+        { "name": "keys", "type": "any", "variadic": true, "description": "One or more keys/indices for nested access." }
+      ],
+      "returns": { "type": "any" },
+      "description": "Returns the result of indexing into the collection. Multiple keys drill into nested maps/slices.",
+      "examples": ["{{ index .data \"ca.crt\" }}", "{{ index ( lookup \"v1\" \"Secret\" \"ns\" \"name\" ).data \"key\" }}"],
+      "source": "go text/template"
+    },
+    {
+      "name": "len",
+      "signature": "len(value any) int",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "int" },
+      "description": "Length of a string, list, or map.",
+      "source": "go text/template"
+    },
+    {
+      "name": "slice",
+      "signature": "slice(value any, indexes ...int) any",
+      "params": [
+        { "name": "value", "type": "any" },
+        { "name": "indexes", "type": "int", "variadic": true }
+      ],
+      "returns": { "type": "any" },
+      "description": "Slice of a string, slice, or array. With one index returns value[i:], with two returns value[i:j], with three (slices only) returns value[i:j:k].",
+      "source": "go text/template"
+    },
+    {
+      "name": "call",
+      "signature": "call(fn any, args ...any) any",
+      "params": [
+        { "name": "fn", "type": "any" },
+        { "name": "args", "type": "any", "variadic": true }
+      ],
+      "returns": { "type": "any" },
+      "description": "Calls a function value with the given arguments.",
+      "source": "go text/template"
+    },
+    {
+      "name": "eq",
+      "signature": "eq(a any, b ...any) bool",
+      "params": [
+        { "name": "a", "type": "any" },
+        { "name": "b", "type": "any", "variadic": true }
+      ],
+      "returns": { "type": "bool" },
+      "description": "True if the first argument is equal to any of the others.",
+      "source": "go text/template"
+    },
+    {
+      "name": "ne",
+      "signature": "ne(a any, b any) bool",
+      "params": [{ "name": "a", "type": "any" }, { "name": "b", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if a is not equal to b.",
+      "source": "go text/template"
+    },
+    {
+      "name": "lt",
+      "signature": "lt(a any, b any) bool",
+      "params": [{ "name": "a", "type": "any" }, { "name": "b", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if a is less than b.",
+      "source": "go text/template"
+    },
+    {
+      "name": "le",
+      "signature": "le(a any, b any) bool",
+      "params": [{ "name": "a", "type": "any" }, { "name": "b", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if a is less than or equal to b.",
+      "source": "go text/template"
+    },
+    {
+      "name": "gt",
+      "signature": "gt(a any, b any) bool",
+      "params": [{ "name": "a", "type": "any" }, { "name": "b", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if a is greater than b.",
+      "source": "go text/template"
+    },
+    {
+      "name": "ge",
+      "signature": "ge(a any, b any) bool",
+      "params": [{ "name": "a", "type": "any" }, { "name": "b", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if a is greater than or equal to b.",
+      "source": "go text/template"
+    },
+    {
+      "name": "and",
+      "signature": "and(args ...any) any",
+      "params": [{ "name": "args", "type": "any", "variadic": true }],
+      "returns": { "type": "any" },
+      "description": "Returns the first empty argument, or the last argument if none are empty.",
+      "source": "go text/template"
+    },
+    {
+      "name": "or",
+      "signature": "or(args ...any) any",
+      "params": [{ "name": "args", "type": "any", "variadic": true }],
+      "returns": { "type": "any" },
+      "description": "Returns the first non-empty argument, or the last argument if all are empty.",
+      "source": "go text/template"
+    },
+    {
+      "name": "not",
+      "signature": "not(value any) bool",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "Boolean negation of value's truthiness.",
+      "source": "go text/template"
+    },
+    {
+      "name": "print",
+      "signature": "print(args ...any) string",
+      "params": [{ "name": "args", "type": "any", "variadic": true }],
+      "returns": { "type": "string" },
+      "description": "Formats using default formats for its operands and returns the resulting string.",
+      "source": "go text/template"
+    },
+    {
+      "name": "printf",
+      "signature": "printf(format string, args ...any) string",
+      "params": [
+        { "name": "format", "type": "string" },
+        { "name": "args", "type": "any", "variadic": true }
+      ],
+      "returns": { "type": "string" },
+      "description": "Go-style formatted string.",
+      "source": "go text/template"
+    },
+    {
+      "name": "println",
+      "signature": "println(args ...any) string",
+      "params": [{ "name": "args", "type": "any", "variadic": true }],
+      "returns": { "type": "string" },
+      "description": "Like print but adds spaces between args and a newline at the end.",
+      "source": "go text/template"
+    },
+    {
+      "name": "urlquery",
+      "signature": "urlquery(s string) string",
+      "params": [{ "name": "s", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "URL-escapes a string.",
+      "source": "go text/template"
+    },
+    {
+      "name": "html",
+      "signature": "html(s string) string",
+      "params": [{ "name": "s", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "HTML-escapes a string.",
+      "source": "go text/template"
+    },
+    {
+      "name": "js",
+      "signature": "js(s string) string",
+      "params": [{ "name": "s", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "JS-escapes a string for embedding inside JavaScript.",
+      "source": "go text/template"
+    }
+  ]
+}

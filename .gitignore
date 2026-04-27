@@ -1,0 +1,3 @@
+lsp-server/autoshift-lsp
+lsp-server/smoketest
+*.test

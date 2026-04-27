@@ -1,0 +1,299 @@
+{
+  "source": "helm + sprig seed (hand-curated, not exhaustive)",
+  "functions": [
+    {
+      "name": "default",
+      "signature": "default(default any, value any) any",
+      "params": [
+        { "name": "default", "type": "any", "description": "Value returned if 'value' is empty." },
+        { "name": "value", "type": "any", "description": "Value to check for emptiness." }
+      ],
+      "returns": { "type": "any", "description": "'value' if non-empty, else 'default'." },
+      "description": "Returns a default value if the input is empty.",
+      "examples": ["{{ default \"n/a\" .Values.label }}"],
+      "source": "sprig"
+    },
+    {
+      "name": "empty",
+      "signature": "empty(value any) bool",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "bool" },
+      "description": "True if value is the zero value for its type (0, \"\", nil, empty list/map).",
+      "source": "sprig"
+    },
+    {
+      "name": "coalesce",
+      "signature": "coalesce(values ...any) any",
+      "params": [{ "name": "values", "type": "any", "variadic": true }],
+      "returns": { "type": "any" },
+      "description": "Returns the first non-empty argument.",
+      "source": "sprig"
+    },
+    {
+      "name": "ternary",
+      "signature": "ternary(ifTrue any, ifFalse any, test bool) any",
+      "params": [
+        { "name": "ifTrue", "type": "any" },
+        { "name": "ifFalse", "type": "any" },
+        { "name": "test", "type": "bool" }
+      ],
+      "returns": { "type": "any" },
+      "description": "Branch on a boolean. Returns ifTrue when test is true, else ifFalse.",
+      "source": "sprig"
+    },
+    {
+      "name": "toYaml",
+      "signature": "toYaml(value any) string",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Serializes a value to YAML.",
+      "source": "helm"
+    },
+    {
+      "name": "fromYaml",
+      "signature": "fromYaml(text string) map[string]any",
+      "params": [{ "name": "text", "type": "string" }],
+      "returns": { "type": "map[string]any" },
+      "description": "Parses a YAML string into a map.",
+      "source": "helm"
+    },
+    {
+      "name": "toJson",
+      "signature": "toJson(value any) string",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Serializes a value to compact JSON.",
+      "source": "helm"
+    },
+    {
+      "name": "fromJson",
+      "signature": "fromJson(text string) any",
+      "params": [{ "name": "text", "type": "string" }],
+      "returns": { "type": "any" },
+      "description": "Parses a JSON string.",
+      "source": "helm"
+    },
+    {
+      "name": "b64enc",
+      "signature": "b64enc(value string) string",
+      "params": [{ "name": "value", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Base64-encodes a string.",
+      "source": "sprig"
+    },
+    {
+      "name": "b64dec",
+      "signature": "b64dec(value string) string",
+      "params": [{ "name": "value", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Base64-decodes a string.",
+      "source": "sprig"
+    },
+    {
+      "name": "quote",
+      "signature": "quote(value any) string",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Wraps a value in double quotes.",
+      "source": "sprig"
+    },
+    {
+      "name": "printf",
+      "signature": "printf(format string, args ...any) string",
+      "params": [
+        { "name": "format", "type": "string" },
+        { "name": "args", "type": "any", "variadic": true }
+      ],
+      "returns": { "type": "string" },
+      "description": "Go-style formatted string.",
+      "source": "go"
+    },
+    {
+      "name": "replace",
+      "signature": "replace(old string, new string, value string) string",
+      "params": [
+        { "name": "old", "type": "string" },
+        { "name": "new", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Replaces all occurrences of old with new in value.",
+      "source": "sprig"
+    },
+    {
+      "name": "hasPrefix",
+      "signature": "hasPrefix(prefix string, value string) bool",
+      "params": [
+        { "name": "prefix", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "type": "bool" },
+      "description": "True if value starts with prefix.",
+      "source": "sprig"
+    },
+    {
+      "name": "hasSuffix",
+      "signature": "hasSuffix(suffix string, value string) bool",
+      "params": [
+        { "name": "suffix", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "type": "bool" },
+      "description": "True if value ends with suffix.",
+      "source": "sprig"
+    },
+    {
+      "name": "contains",
+      "signature": "contains(substr string, value string) bool",
+      "params": [
+        { "name": "substr", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "type": "bool" },
+      "description": "True if value contains substr.",
+      "source": "sprig"
+    },
+    {
+      "name": "split",
+      "signature": "split(sep string, value string) map[string]string",
+      "params": [
+        { "name": "sep", "type": "string" },
+        { "name": "value", "type": "string" }
+      ],
+      "returns": { "type": "map[string]string" },
+      "description": "Splits value on sep, returns map keyed _0, _1, ...",
+      "source": "sprig"
+    },
+    {
+      "name": "list",
+      "signature": "list(items ...any) []any",
+      "params": [{ "name": "items", "type": "any", "variadic": true }],
+      "returns": { "type": "[]any" },
+      "description": "Creates a list from the given items.",
+      "source": "sprig"
+    },
+    {
+      "name": "dict",
+      "signature": "dict(pairs ...any) map[string]any",
+      "params": [{ "name": "pairs", "type": "any", "variadic": true }],
+      "returns": { "type": "map[string]any" },
+      "description": "Creates a map from alternating key/value pairs.",
+      "source": "sprig"
+    },
+    {
+      "name": "get",
+      "signature": "get(dict map[string]any, key string) any",
+      "params": [
+        { "name": "dict", "type": "map[string]any" },
+        { "name": "key", "type": "string" }
+      ],
+      "returns": { "type": "any" },
+      "description": "Returns a value from a map by key.",
+      "source": "sprig"
+    },
+    {
+      "name": "set",
+      "signature": "set(dict map[string]any, key string, value any) map[string]any",
+      "params": [
+        { "name": "dict", "type": "map[string]any" },
+        { "name": "key", "type": "string" },
+        { "name": "value", "type": "any" }
+      ],
+      "returns": { "type": "map[string]any" },
+      "description": "Sets a key in a map and returns the map.",
+      "source": "sprig"
+    },
+    {
+      "name": "merge",
+      "signature": "merge(dst map[string]any, src ...map[string]any) map[string]any",
+      "params": [
+        { "name": "dst", "type": "map[string]any" },
+        { "name": "src", "type": "map[string]any", "variadic": true }
+      ],
+      "returns": { "type": "map[string]any" },
+      "description": "Merges src maps into dst (dst wins on conflict).",
+      "source": "sprig"
+    },
+    {
+      "name": "index",
+      "signature": "index(collection any, keys ...any) any",
+      "params": [
+        { "name": "collection", "type": "any" },
+        { "name": "keys", "type": "any", "variadic": true }
+      ],
+      "returns": { "type": "any" },
+      "description": "Indexes into a list or map, supports nested access.",
+      "source": "go"
+    },
+    {
+      "name": "len",
+      "signature": "len(value any) int",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "int" },
+      "description": "Length of a string, list, or map.",
+      "source": "go"
+    },
+    {
+      "name": "include",
+      "signature": "include(name string, data any) string",
+      "params": [
+        { "name": "name", "type": "string" },
+        { "name": "data", "type": "any" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Renders a named template and returns its output as a string.",
+      "source": "helm"
+    },
+    {
+      "name": "required",
+      "signature": "required(message string, value any) any",
+      "params": [
+        { "name": "message", "type": "string" },
+        { "name": "value", "type": "any" }
+      ],
+      "returns": { "type": "any" },
+      "description": "Fails the render with message if value is empty.",
+      "source": "helm"
+    },
+    {
+      "name": "tpl",
+      "signature": "tpl(text string, data any) string",
+      "params": [
+        { "name": "text", "type": "string" },
+        { "name": "data", "type": "any" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Renders a string as a Go template within the given data context.",
+      "source": "helm"
+    },
+    {
+      "name": "lookup",
+      "signature": "lookup(apiVersion string, kind string, namespace string, name string) map[string]any",
+      "params": [
+        { "name": "apiVersion", "type": "string" },
+        { "name": "kind", "type": "string" },
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" }
+      ],
+      "returns": { "type": "map[string]any", "description": "Resource as a map, or empty map if not found." },
+      "description": "Looks up a live Kubernetes resource at render time. In Helm context, requires cluster access.",
+      "source": "helm"
+    },
+    {
+      "name": "toString",
+      "signature": "toString(value any) string",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Converts a value to its string representation.",
+      "source": "sprig"
+    },
+    {
+      "name": "toInt",
+      "signature": "toInt(value any) int",
+      "params": [{ "name": "value", "type": "any" }],
+      "returns": { "type": "int" },
+      "description": "Converts a value to an integer.",
+      "source": "sprig"
+    }
+  ]
+}

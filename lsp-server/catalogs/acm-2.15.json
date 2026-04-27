@@ -1,0 +1,517 @@
+{
+  "acmVersion": "2.15",
+  "hubFunctions": [
+    {
+      "name": "fromSecret",
+      "signature": "func fromSecret(ns string, secretName string, datakey string) (dataValue string, err error)",
+      "params": [
+        { "name": "ns", "type": "string", "description": "Namespace. On the hub side, must match the policy namespace." },
+        { "name": "secretName", "type": "string" },
+        { "name": "datakey", "type": "string", "description": "Key inside the Secret's data map." }
+      ],
+      "returns": { "type": "string", "description": "Data value. On the hub, the output is automatically encrypted via protect before propagation." },
+      "description": "Returns the value of the given data key in the Secret. Hub-side output is auto-encrypted using protect.",
+      "examples": ["'{{hub fromSecret \"default\" \"localsecret\" \"PASSWORD\" hub}}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.1"
+    },
+    {
+      "name": "fromConfigMap",
+      "signature": "func fromConfigMap(ns string, configmapName string, datakey string) (dataValue string, err Error)",
+      "params": [
+        { "name": "ns", "type": "string", "description": "Namespace. On the hub side, must match the policy namespace." },
+        { "name": "configmapName", "type": "string" },
+        { "name": "datakey", "type": "string" }
+      ],
+      "returns": { "type": "string", "description": "Empty string if the data key does not exist." },
+      "description": "Returns the value of the given data key in the ConfigMap.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.2"
+    },
+    {
+      "name": "fromClusterClaim",
+      "signature": "func fromClusterClaim(clusterclaimName string) (dataValue string, err Error)",
+      "params": [{ "name": "clusterclaimName", "type": "string" }],
+      "returns": { "type": "string", "description": "Spec.Value from the ClusterClaim. Errors if the ClusterClaim does not exist." },
+      "description": "Returns the value of Spec.Value in the ClusterClaim resource. Produces a policy violation if the ClusterClaim does not exist.",
+      "examples": ["'{{ fromClusterClaim \"platform.open-cluster-management.io\" }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.3"
+    },
+    {
+      "name": "lookupClusterClaim",
+      "signature": "func lookupClusterClaim(clusterclaimName string) (dataValue string)",
+      "params": [{ "name": "clusterclaimName", "type": "string" }],
+      "returns": { "type": "string", "description": "Empty string if the ClusterClaim does not exist (no error, unlike fromClusterClaim)." },
+      "description": "Like fromClusterClaim but returns an empty string if the ClusterClaim is missing, allowing callers to branch with default.",
+      "examples": ["'{{ default \"empty\" (lookupClusterClaim \"possibly.nonexistent\") }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.4"
+    },
+    {
+      "name": "lookup",
+      "signature": "func lookup(apiversion string, kind string, namespace string, name string, labelselector ...string) (value string, err Error)",
+      "params": [
+        { "name": "apiversion", "type": "string" },
+        { "name": "kind", "type": "string" },
+        { "name": "namespace", "type": "string", "description": "On the hub side, restricted to the policy namespace." },
+        { "name": "name", "type": "string" },
+        { "name": "labelselector", "type": "string", "variadic": true, "description": "Optional label selectors." }
+      ],
+      "returns": { "type": "map[string]any", "description": "Resource as a JSON-compatible map; empty map if not found. Pipe through | default dict for nil-safety before further pipeline ops." },
+      "description": "Generic lookup of a Kubernetes resource. Use default so the correct type is passed to later template functions.",
+      "examples": ["'{{ (lookup \"v1\" \"Service\" \"default\" \"metrics\").spec.clusterIP }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.5"
+    },
+    {
+      "name": "base64enc",
+      "signature": "func base64enc(data string) (enc-data string)",
+      "params": [{ "name": "data", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Returns a base64-encoded value of the input data string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.6"
+    },
+    {
+      "name": "base64dec",
+      "signature": "func base64dec(enc-data string) (data string)",
+      "params": [{ "name": "enc-data", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Returns a base64-decoded value of the input string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.7"
+    },
+    {
+      "name": "indent",
+      "signature": "func indent(spaces int, data string) (padded-data string)",
+      "params": [
+        { "name": "spaces", "type": "int" },
+        { "name": "data", "type": "string" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Returns the data string padded with a specific number of leading spaces on each line.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.8"
+    },
+    {
+      "name": "autoindent",
+      "signature": "autoindent()",
+      "params": [],
+      "returns": { "type": "string" },
+      "description": "Like indent, but automatically determines the number of leading spaces from the column of the template directive. Required when interpolating multi-line values such as toYaml output.",
+      "examples": ["{{ dict \"key1\" \"value1\" | toYaml | autoindent }}"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.9"
+    },
+    {
+      "name": "toInt",
+      "signature": "func toInt(input interface{}) (output int)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "int" },
+      "description": "Casts the input to its integer value. Must be the last function in the pipeline so YAML interprets the result as an integer rather than a string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.10"
+    },
+    {
+      "name": "toBool",
+      "signature": "func toBool(input string) (output bool)",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "bool" },
+      "description": "Converts the input string to a boolean. Must be the last function in the pipeline so YAML interprets the result as a boolean.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.11"
+    },
+    {
+      "name": "fromYaml",
+      "signature": "func fromYaml(input string) (output interface{})",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "any", "description": "Parsed Golang object." },
+      "description": "Parses a YAML string into a Golang object. Also available as fromYAML. Typically used against ConfigMap values that carry YAML content.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.12"
+    },
+    {
+      "name": "toYaml",
+      "signature": "func toYaml(input interface{}) (output string)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Serializes a Golang object to a YAML string. Also available as toYAML. For multi-line results to indent correctly, pipe through autoindent or indent.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.13"
+    },
+    {
+      "name": "fromYAML",
+      "signature": "func fromYAML(input string) (output interface{})",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "any" },
+      "description": "Alias for fromYaml. Parses a YAML string into a Golang object.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.12 (alias)"
+    },
+    {
+      "name": "toYAML",
+      "signature": "func toYAML(input interface{}) (output string)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Alias for toYaml. Serializes a Golang object to a YAML string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.13 (alias)"
+    },
+    {
+      "name": "protect",
+      "signature": "func protect(value string) (encrypted string)",
+      "params": [{ "name": "value", "type": "string" }],
+      "returns": { "type": "string", "description": "Value encrypted with AES-CBC 256-bit per-managed-cluster key, prefixed with $ocm_encrypted:. Auto-decrypted on the managed cluster at policy evaluation." },
+      "description": "Hub-only. Encrypts a string in a hub cluster policy template. Used with syntax '| protect hub' at the end of a pipeline. Encryption keys rotate every 30 days.",
+      "examples": ["{{hub (lookup \"v1\" \"Secret\" \"default\" \"my-hub-secret\").data.message | protect hub}}"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.14"
+    },
+    {
+      "name": "toLiteral",
+      "signature": "func toLiteral(value string) (literal any)",
+      "params": [{ "name": "value", "type": "string" }],
+      "returns": { "type": "any", "description": "Emits the value without surrounding quotation marks, allowing structured content (numbers, bools, lists, maps) to be interpolated into YAML." },
+      "description": "Removes outer quotation marks from the template result, converting a JSON-encoded string to a YAML-native value in the manifest.",
+      "examples": ["key: '{{ \"[\\\"10.10.10.10\\\", \\\"1.1.1.1\\\"]\" | toLiteral }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.15"
+    },
+    {
+      "name": "copySecretData",
+      "signature": "func copySecretData(namespace string, name string) (data map[string]string)",
+      "params": [
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" }
+      ],
+      "returns": { "type": "map[string]string", "description": "All keys in the Secret's data field. Auto-encrypted via protect when used in a hub template." },
+      "description": "Copies all of the data contents of the specified Secret.",
+      "examples": ["data: '{{ copySecretData \"default\" \"my-secret\" }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.16"
+    },
+    {
+      "name": "copyConfigMapData",
+      "signature": "func copyConfigMapData(namespace string, name string) (data map[string]string)",
+      "params": [
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" }
+      ],
+      "returns": { "type": "map[string]string" },
+      "description": "Copies all of the data content of the specified ConfigMap.",
+      "examples": ["data: '{{ copyConfigMapData \"default\" \"my-configmap\" }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.17"
+    },
+    {
+      "name": "getNodesWithExactRoles",
+      "signature": "func getNodesWithExactRoles(role string) (nodes []Node)",
+      "params": [{ "name": "role", "type": "string", "description": "Role label to match, e.g. \"infra\"." }],
+      "returns": { "type": "NodeList", "description": "Nodes that carry the specified role label and only that role (ignoring node-role.kubernetes.io/worker)." },
+      "description": "Returns a list of nodes with only the role you specify. Ignores nodes that carry additional roles except node-role.kubernetes.io/worker.",
+      "examples": ["{{- range $i,$nd := (getNodesWithExactRoles \"infra\").items }}"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.18"
+    },
+    {
+      "name": "hasNodesWithExactRoles",
+      "signature": "func hasNodesWithExactRoles(role string) (present bool)",
+      "params": [{ "name": "role", "type": "string" }],
+      "returns": { "type": "bool" },
+      "description": "Returns true if the cluster contains any nodes with only the specified role (ignoring node-role.kubernetes.io/worker).",
+      "examples": ["key: '{{ hasNodesWithExactRoles \"infra\" }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.19"
+    }
+  ],
+  "managedFunctions": [
+    {
+      "name": "fromSecret",
+      "signature": "func fromSecret(ns string, secretName string, datakey string) (dataValue string, err error)",
+      "params": [
+        { "name": "ns", "type": "string" },
+        { "name": "secretName", "type": "string" },
+        { "name": "datakey", "type": "string" }
+      ],
+      "returns": { "type": "string", "description": "Empty string if the data key does not exist. Policy violation if the Secret itself is missing." },
+      "description": "Returns the value of the given data key in the Secret on the managed cluster at policy evaluation.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.1"
+    },
+    {
+      "name": "fromConfigMap",
+      "signature": "func fromConfigMap(ns string, configmapName string, datakey string) (dataValue string, err Error)",
+      "params": [
+        { "name": "ns", "type": "string" },
+        { "name": "configmapName", "type": "string" },
+        { "name": "datakey", "type": "string" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Returns the value of the given data key in the ConfigMap on the managed cluster.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.2"
+    },
+    {
+      "name": "fromClusterClaim",
+      "signature": "func fromClusterClaim(clusterclaimName string) (dataValue string, err Error)",
+      "params": [{ "name": "clusterclaimName", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Returns the value of Spec.Value in a ClusterClaim on the managed cluster. Policy violation if the ClusterClaim does not exist.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.3"
+    },
+    {
+      "name": "lookupClusterClaim",
+      "signature": "func lookupClusterClaim(clusterclaimName string) (dataValue string)",
+      "params": [{ "name": "clusterclaimName", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Like fromClusterClaim but returns empty string if the ClusterClaim is missing.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.4"
+    },
+    {
+      "name": "lookup",
+      "signature": "func lookup(apiversion string, kind string, namespace string, name string, labelselector ...string) (value string, err Error)",
+      "params": [
+        { "name": "apiversion", "type": "string" },
+        { "name": "kind", "type": "string" },
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" },
+        { "name": "labelselector", "type": "string", "variadic": true }
+      ],
+      "returns": { "type": "map[string]any", "description": "On managed cluster you can reference any resource." },
+      "description": "Looks up a resource on the managed cluster. No namespace restriction (unlike hub-side lookup).",
+      "source": "RHACM 2.15 Governance §1.2.2.1.5"
+    },
+    {
+      "name": "base64enc",
+      "signature": "func base64enc(data string) (enc-data string)",
+      "params": [{ "name": "data", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Returns a base64-encoded value of the input data string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.6"
+    },
+    {
+      "name": "base64dec",
+      "signature": "func base64dec(enc-data string) (data string)",
+      "params": [{ "name": "enc-data", "type": "string" }],
+      "returns": { "type": "string" },
+      "description": "Returns a base64-decoded value of the input string.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.7"
+    },
+    {
+      "name": "indent",
+      "signature": "func indent(spaces int, data string) (padded-data string)",
+      "params": [
+        { "name": "spaces", "type": "int" },
+        { "name": "data", "type": "string" }
+      ],
+      "returns": { "type": "string" },
+      "description": "Returns the data string padded with a specific number of leading spaces.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.8"
+    },
+    {
+      "name": "autoindent",
+      "signature": "autoindent()",
+      "params": [],
+      "returns": { "type": "string" },
+      "description": "Automatically indents pipeline output based on the column of the template directive.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.9"
+    },
+    {
+      "name": "toInt",
+      "signature": "func toInt(input interface{}) (output int)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "int" },
+      "description": "Casts the input to int. Must be the last function in the pipeline.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.10"
+    },
+    {
+      "name": "toBool",
+      "signature": "func toBool(input string) (output bool)",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "bool" },
+      "description": "Converts the input string to a boolean. Must be the last function in the pipeline.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.11"
+    },
+    {
+      "name": "fromYaml",
+      "signature": "func fromYaml(input string) (output interface{})",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "any" },
+      "description": "Parses a YAML string into a Golang object. Also available as fromYAML.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.12"
+    },
+    {
+      "name": "toYaml",
+      "signature": "func toYaml(input interface{}) (output string)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Serializes a Golang object to a YAML string. Also available as toYAML.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.13"
+    },
+    {
+      "name": "fromYAML",
+      "signature": "func fromYAML(input string) (output interface{})",
+      "params": [{ "name": "input", "type": "string" }],
+      "returns": { "type": "any" },
+      "description": "Alias for fromYaml.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.12 (alias)"
+    },
+    {
+      "name": "toYAML",
+      "signature": "func toYAML(input interface{}) (output string)",
+      "params": [{ "name": "input", "type": "any" }],
+      "returns": { "type": "string" },
+      "description": "Alias for toYaml.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.13 (alias)"
+    },
+    {
+      "name": "toLiteral",
+      "signature": "func toLiteral(value string) (literal any)",
+      "params": [{ "name": "value", "type": "string" }],
+      "returns": { "type": "any" },
+      "description": "Removes outer quotation marks from the template result, converting JSON strings to YAML-native values.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.15"
+    },
+    {
+      "name": "copySecretData",
+      "signature": "func copySecretData(namespace string, name string) (data map[string]string)",
+      "params": [
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" }
+      ],
+      "returns": { "type": "map[string]string" },
+      "description": "Copies all of the data contents of the specified Secret.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.16"
+    },
+    {
+      "name": "copyConfigMapData",
+      "signature": "func copyConfigMapData(namespace string, name string) (data map[string]string)",
+      "params": [
+        { "name": "namespace", "type": "string" },
+        { "name": "name", "type": "string" }
+      ],
+      "returns": { "type": "map[string]string" },
+      "description": "Copies all of the data content of the specified ConfigMap.",
+      "source": "RHACM 2.15 Governance §1.2.2.1.17"
+    },
+    {
+      "name": "getNodesWithExactRoles",
+      "signature": "func getNodesWithExactRoles(role string) (nodes NodeList)",
+      "params": [{ "name": "role", "type": "string" }],
+      "returns": { "type": "NodeList" },
+      "description": "Returns a list of nodes with only the role you specify (ignoring node-role.kubernetes.io/worker).",
+      "source": "RHACM 2.15 Governance §1.2.2.1.18"
+    },
+    {
+      "name": "hasNodesWithExactRoles",
+      "signature": "func hasNodesWithExactRoles(role string) (present bool)",
+      "params": [{ "name": "role", "type": "string" }],
+      "returns": { "type": "bool" },
+      "description": "Returns true if the cluster contains nodes with only the specified role (ignoring worker).",
+      "source": "RHACM 2.15 Governance §1.2.2.1.19"
+    },
+    {
+      "name": "skipObject",
+      "signature": "func skipObject(skip ...bool)",
+      "params": [{ "name": "skip", "type": "bool", "variadic": true, "description": "Optional. If omitted, always skips." }],
+      "returns": { "type": "void" },
+      "description": "Managed-only. Available in ConfigurationPolicy resources. Signals to skip a particular object for the policy. Use inside a conditional or with an optional boolean argument. Combines with objectSelector to filter further by name.",
+      "examples": ["key: '{{ skipObject (hasSuffix \"-prod\" .ObjectName) }}'"],
+      "source": "RHACM 2.15 Governance §1.2.2.1.20"
+    }
+  ],
+  "sprigFunctions": [
+    { "name": "htpasswd", "signature": "htpasswd(username string, password string) string", "params": [{"name":"username","type":"string"},{"name":"password","type":"string"}], "returns": { "type": "string" }, "description": "Generates an htpasswd entry. Category: Cryptographic and security.", "source": "RHACM 2.15 Governance Table 1.5 / sprig" },
+    { "name": "date", "signature": "date(format string, date any) string", "params": [{"name":"format","type":"string"},{"name":"date","type":"any"}], "returns": { "type": "string" }, "description": "Formats a date. Category: Date.", "source": "sprig" },
+    { "name": "mustToDate", "signature": "mustToDate(format string, s string) (time.Time, error)", "params": [{"name":"format","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "time.Time" }, "description": "Parses a date string; errors if invalid. Category: Date.", "source": "sprig" },
+    { "name": "now", "signature": "now() time.Time", "params": [], "returns": { "type": "time.Time" }, "description": "Current time. Category: Date.", "source": "sprig" },
+    { "name": "toDate", "signature": "toDate(format string, s string) time.Time", "params": [{"name":"format","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "time.Time" }, "description": "Parses a date string; returns zero value on error. Category: Date.", "source": "sprig" },
+    { "name": "default", "signature": "default(default any, value any) any", "params": [{"name":"default","type":"any"},{"name":"value","type":"any"}], "returns": { "type": "any" }, "description": "Returns default if value is empty. Category: Default.", "source": "sprig" },
+    { "name": "empty", "signature": "empty(value any) bool", "params": [{"name":"value","type":"any"}], "returns": { "type": "bool" }, "description": "True for zero values. Category: Default.", "source": "sprig" },
+    { "name": "fromJson", "signature": "fromJson(s string) any", "params": [{"name":"s","type":"string"}], "returns": { "type": "any" }, "description": "Parses a JSON string. Also aliased to fromJSON. Category: Default.", "source": "sprig" },
+    { "name": "mustFromJson", "signature": "mustFromJson(s string) (any, error)", "params": [{"name":"s","type":"string"}], "returns": { "type": "any" }, "description": "Parses JSON; errors on invalid input. Category: Default.", "source": "sprig" },
+    { "name": "ternary", "signature": "ternary(ifTrue any, ifFalse any, test bool) any", "params": [{"name":"ifTrue","type":"any"},{"name":"ifFalse","type":"any"},{"name":"test","type":"bool"}], "returns": { "type": "any" }, "description": "Branch on a boolean. Category: Default.", "source": "sprig" },
+    { "name": "toJson", "signature": "toJson(value any) string", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Serializes to compact JSON. Also aliased to toJSON. Category: Default.", "source": "sprig" },
+    { "name": "toRawJson", "signature": "toRawJson(value any) string", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Like toJson but escapes newlines so they do not affect YAML structure. Use with multi-line strings such as certificates. Category: Default.", "source": "sprig" },
+    { "name": "mustToRawJson", "signature": "mustToRawJson(value any) (string, error)", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "toRawJson that errors on failure. Category: Default.", "source": "sprig" },
+    { "name": "fromJSON", "signature": "fromJSON(s string) any", "params": [{"name":"s","type":"string"}], "returns": { "type": "any" }, "description": "Alias for fromJson. Parses a JSON string.", "source": "sprig (alias)" },
+    { "name": "mustFromJSON", "signature": "mustFromJSON(s string) (any, error)", "params": [{"name":"s","type":"string"}], "returns": { "type": "any" }, "description": "Alias for mustFromJson.", "source": "sprig (alias)" },
+    { "name": "toJSON", "signature": "toJSON(value any) string", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Alias for toJson.", "source": "sprig (alias)" },
+    { "name": "toRawJSON", "signature": "toRawJSON(value any) string", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Alias for toRawJson.", "source": "sprig (alias)" },
+    { "name": "mustToRawJSON", "signature": "mustToRawJSON(value any) (string, error)", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Alias for mustToRawJson.", "source": "sprig (alias)" },
+    { "name": "dict", "signature": "dict(pairs ...any) map[string]any", "params": [{"name":"pairs","type":"any","variadic":true}], "returns": { "type": "map[string]any" }, "description": "Builds a map from alternating key/value pairs. Category: Dictionaries.", "source": "sprig" },
+    { "name": "dig", "signature": "dig(keys ...string, default any, dict map[string]any) any", "params": [{"name":"keys","type":"string","variadic":true},{"name":"default","type":"any"},{"name":"dict","type":"map[string]any"}], "returns": { "type": "any" }, "description": "Deep lookup into a nested map with a default. Category: Dictionaries.", "source": "sprig" },
+    { "name": "get", "signature": "get(dict map[string]any, key string) any", "params": [{"name":"dict","type":"map[string]any"},{"name":"key","type":"string"}], "returns": { "type": "any" }, "description": "Map lookup. Category: Dictionaries.", "source": "sprig" },
+    { "name": "hasKey", "signature": "hasKey(dict map[string]any, key string) bool", "params": [{"name":"dict","type":"map[string]any"},{"name":"key","type":"string"}], "returns": { "type": "bool" }, "description": "Map key presence check. Category: Dictionaries.", "source": "sprig" },
+    { "name": "keys", "signature": "keys(dicts ...map[string]any) []string", "params": [{"name":"dicts","type":"map[string]any","variadic":true}], "returns": { "type": "[]string" }, "description": "Keys of one or more maps. Category: Dictionaries.", "source": "sprig" },
+    { "name": "merge", "signature": "merge(dst map[string]any, src ...map[string]any) map[string]any", "params": [{"name":"dst","type":"map[string]any"},{"name":"src","type":"map[string]any","variadic":true}], "returns": { "type": "map[string]any" }, "description": "Merges src maps into dst; dst wins on conflict. Category: Dictionaries.", "source": "sprig" },
+    { "name": "mustMerge", "signature": "mustMerge(dst map[string]any, src ...map[string]any) (map[string]any, error)", "params": [{"name":"dst","type":"map[string]any"},{"name":"src","type":"map[string]any","variadic":true}], "returns": { "type": "map[string]any" }, "description": "merge that errors on failure. Category: Dictionaries.", "source": "sprig" },
+    { "name": "set", "signature": "set(dict map[string]any, key string, value any) map[string]any", "params": [{"name":"dict","type":"map[string]any"},{"name":"key","type":"string"},{"name":"value","type":"any"}], "returns": { "type": "map[string]any" }, "description": "Sets a key in a map. Category: Dictionaries.", "source": "sprig" },
+    { "name": "unset", "signature": "unset(dict map[string]any, key string) map[string]any", "params": [{"name":"dict","type":"map[string]any"},{"name":"key","type":"string"}], "returns": { "type": "map[string]any" }, "description": "Removes a key from a map. Category: Dictionaries.", "source": "sprig" },
+    { "name": "values", "signature": "values(dict map[string]any) []any", "params": [{"name":"dict","type":"map[string]any"}], "returns": { "type": "[]any" }, "description": "Values of a map. Category: Dictionaries.", "source": "sprig" },
+    { "name": "b64dec", "signature": "b64dec(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Base64-decodes a string. Category: Encoding.", "source": "sprig" },
+    { "name": "b64enc", "signature": "b64enc(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Base64-encodes a string. Category: Encoding.", "source": "sprig" },
+    { "name": "fail", "signature": "fail(message string) error", "params": [{"name":"message","type":"string"}], "returns": { "type": "error" }, "description": "Aborts template rendering with a message. Category: Flow control.", "source": "sprig" },
+    { "name": "add", "signature": "add(a int, b ...int) int", "params": [{"name":"a","type":"int"},{"name":"b","type":"int","variadic":true}], "returns": { "type": "int" }, "description": "Integer addition. Category: Integer math.", "source": "sprig" },
+    { "name": "mul", "signature": "mul(a int, b ...int) int", "params": [{"name":"a","type":"int"},{"name":"b","type":"int","variadic":true}], "returns": { "type": "int" }, "description": "Integer multiplication. Category: Integer math.", "source": "sprig" },
+    { "name": "div", "signature": "div(a int, b int) int", "params": [{"name":"a","type":"int"},{"name":"b","type":"int"}], "returns": { "type": "int" }, "description": "Integer division. Category: Integer math.", "source": "sprig" },
+    { "name": "round", "signature": "round(n float, decimals int) float", "params": [{"name":"n","type":"float"},{"name":"decimals","type":"int"}], "returns": { "type": "float" }, "description": "Rounds a float. Category: Integer math.", "source": "sprig" },
+    { "name": "sub", "signature": "sub(a int, b int) int", "params": [{"name":"a","type":"int"},{"name":"b","type":"int"}], "returns": { "type": "int" }, "description": "Integer subtraction. Category: Integer math.", "source": "sprig" },
+    { "name": "until", "signature": "until(n int) []int", "params": [{"name":"n","type":"int"}], "returns": { "type": "[]int" }, "description": "Integer range [0,n). Category: Integer slice.", "source": "sprig" },
+    { "name": "untilStep", "signature": "untilStep(start int, stop int, step int) []int", "params": [{"name":"start","type":"int"},{"name":"stop","type":"int"},{"name":"step","type":"int"}], "returns": { "type": "[]int" }, "description": "Integer range with step. Category: Integer slice.", "source": "sprig" },
+    { "name": "append", "signature": "append(list []any, item any) []any", "params": [{"name":"list","type":"[]any"},{"name":"item","type":"any"}], "returns": { "type": "[]any" }, "description": "Appends an item to a list. Category: Lists.", "source": "sprig" },
+    { "name": "has", "signature": "has(item any, list []any) bool", "params": [{"name":"item","type":"any"},{"name":"list","type":"[]any"}], "returns": { "type": "bool" }, "description": "List membership. Category: Lists.", "source": "sprig" },
+    { "name": "list", "signature": "list(items ...any) []any", "params": [{"name":"items","type":"any","variadic":true}], "returns": { "type": "[]any" }, "description": "Creates a list. Category: Lists.", "source": "sprig" },
+    { "name": "mustAppend", "signature": "mustAppend(list []any, item any) ([]any, error)", "params": [{"name":"list","type":"[]any"},{"name":"item","type":"any"}], "returns": { "type": "[]any" }, "description": "append that errors on failure. Category: Lists.", "source": "sprig" },
+    { "name": "mustHas", "signature": "mustHas(item any, list []any) (bool, error)", "params": [{"name":"item","type":"any"},{"name":"list","type":"[]any"}], "returns": { "type": "bool" }, "description": "has that errors on failure. Category: Lists.", "source": "sprig" },
+    { "name": "mustPrepend", "signature": "mustPrepend(list []any, item any) ([]any, error)", "params": [{"name":"list","type":"[]any"},{"name":"item","type":"any"}], "returns": { "type": "[]any" }, "description": "prepend that errors on failure. Category: Lists.", "source": "sprig" },
+    { "name": "mustSlice", "signature": "mustSlice(list []any, start int, end int) ([]any, error)", "params": [{"name":"list","type":"[]any"},{"name":"start","type":"int"},{"name":"end","type":"int"}], "returns": { "type": "[]any" }, "description": "slice that errors on failure. Category: Lists.", "source": "sprig" },
+    { "name": "prepend", "signature": "prepend(list []any, item any) []any", "params": [{"name":"list","type":"[]any"},{"name":"item","type":"any"}], "returns": { "type": "[]any" }, "description": "Prepends an item to a list. Category: Lists.", "source": "sprig" },
+    { "name": "slice", "signature": "slice(list []any, start int, end int) []any", "params": [{"name":"list","type":"[]any"},{"name":"start","type":"int"},{"name":"end","type":"int"}], "returns": { "type": "[]any" }, "description": "Sublist. Category: Lists.", "source": "sprig" },
+    { "name": "concat", "signature": "concat(lists ...[]any) []any", "params": [{"name":"lists","type":"[]any","variadic":true}], "returns": { "type": "[]any" }, "description": "Concatenates lists. Category: String lists.", "source": "sprig" },
+    { "name": "join", "signature": "join(sep string, list []any) string", "params": [{"name":"sep","type":"string"},{"name":"list","type":"[]any"}], "returns": { "type": "string" }, "description": "Joins list items with separator. Category: String lists.", "source": "sprig" },
+    { "name": "sortAlpha", "signature": "sortAlpha(list []any) []string", "params": [{"name":"list","type":"[]any"}], "returns": { "type": "[]string" }, "description": "Alphabetical sort. Category: String lists.", "source": "sprig" },
+    { "name": "split", "signature": "split(sep string, s string) map[string]string", "params": [{"name":"sep","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "map[string]string" }, "description": "Splits on separator; returns map keyed _0, _1, ... Category: String lists.", "source": "sprig" },
+    { "name": "splitn", "signature": "splitn(sep string, n int, s string) map[string]string", "params": [{"name":"sep","type":"string"},{"name":"n","type":"int"},{"name":"s","type":"string"}], "returns": { "type": "map[string]string" }, "description": "split with max n parts. Category: String lists.", "source": "sprig" },
+    { "name": "splitList", "signature": "splitList(sep string, s string) []string", "params": [{"name":"sep","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "[]string" }, "description": "Splits on separator; returns list. Category: String lists.", "source": "sprig" },
+    { "name": "cat", "signature": "cat(args ...any) string", "params": [{"name":"args","type":"any","variadic":true}], "returns": { "type": "string" }, "description": "Concatenates args as strings with spaces. Category: Strings.", "source": "sprig" },
+    { "name": "contains", "signature": "contains(substr string, s string) bool", "params": [{"name":"substr","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "bool" }, "description": "Substring check. Category: Strings.", "source": "sprig" },
+    { "name": "hasPrefix", "signature": "hasPrefix(prefix string, s string) bool", "params": [{"name":"prefix","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "bool" }, "description": "Prefix check. Category: Strings.", "source": "sprig" },
+    { "name": "hasSuffix", "signature": "hasSuffix(suffix string, s string) bool", "params": [{"name":"suffix","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "bool" }, "description": "Suffix check. Category: Strings.", "source": "sprig" },
+    { "name": "lower", "signature": "lower(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Lowercase. Category: Strings.", "source": "sprig" },
+    { "name": "mustRegexFind", "signature": "mustRegexFind(pattern string, s string) (string, error)", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "First regex match; errors on invalid pattern. Category: Strings.", "source": "sprig" },
+    { "name": "mustRegexFindAll", "signature": "mustRegexFindAll(pattern string, s string, n int) ([]string, error)", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"},{"name":"n","type":"int"}], "returns": { "type": "[]string" }, "description": "All regex matches; errors on invalid pattern. Category: Strings.", "source": "sprig" },
+    { "name": "mustRegexMatch", "signature": "mustRegexMatch(pattern string, s string) (bool, error)", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "bool" }, "description": "Regex match check; errors on invalid pattern. Category: Strings.", "source": "sprig" },
+    { "name": "quote", "signature": "quote(value any) string", "params": [{"name":"value","type":"any"}], "returns": { "type": "string" }, "description": "Wraps value in double quotes. Category: Strings.", "source": "sprig" },
+    { "name": "regexFind", "signature": "regexFind(pattern string, s string) string", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "First regex match. Category: Strings.", "source": "sprig" },
+    { "name": "regexFindAll", "signature": "regexFindAll(pattern string, s string, n int) []string", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"},{"name":"n","type":"int"}], "returns": { "type": "[]string" }, "description": "All regex matches. Category: Strings.", "source": "sprig" },
+    { "name": "regexMatch", "signature": "regexMatch(pattern string, s string) bool", "params": [{"name":"pattern","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "bool" }, "description": "Regex match check. Category: Strings.", "source": "sprig" },
+    { "name": "regexQuoteMeta", "signature": "regexQuoteMeta(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Escapes regex metacharacters. Category: Strings.", "source": "sprig" },
+    { "name": "replace", "signature": "replace(old string, new string, s string) string", "params": [{"name":"old","type":"string"},{"name":"new","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Replaces all occurrences of old with new. Category: Strings.", "source": "sprig" },
+    { "name": "substr", "signature": "substr(start int, length int, s string) string", "params": [{"name":"start","type":"int"},{"name":"length","type":"int"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Substring. Category: Strings.", "source": "sprig" },
+    { "name": "trim", "signature": "trim(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Trims whitespace. Category: Strings.", "source": "sprig" },
+    { "name": "trimAll", "signature": "trimAll(cutset string, s string) string", "params": [{"name":"cutset","type":"string"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Trims any character in cutset. Category: Strings.", "source": "sprig" },
+    { "name": "trunc", "signature": "trunc(n int, s string) string", "params": [{"name":"n","type":"int"},{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Truncates to n characters. Category: Strings.", "source": "sprig" },
+    { "name": "upper", "signature": "upper(s string) string", "params": [{"name":"s","type":"string"}], "returns": { "type": "string" }, "description": "Uppercase. Category: Strings.", "source": "sprig" },
+    { "name": "semver", "signature": "semver(s string) *Version", "params": [{"name":"s","type":"string"}], "returns": { "type": "*Version" }, "description": "Parses a semver string. Category: Version comparison.", "source": "sprig" },
+    { "name": "semverCompare", "signature": "semverCompare(constraint string, version string) bool", "params": [{"name":"constraint","type":"string"},{"name":"version","type":"string"}], "returns": { "type": "bool" }, "description": "Checks a version against a semver constraint. Category: Version comparison.", "source": "sprig" }
+  ],
+  "hubExportedValues": [
+    {
+      "name": ".ManagedClusterName",
+      "type": "string",
+      "description": "Name of the target cluster where the policy is propagated.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    },
+    {
+      "name": ".ManagedClusterLabels",
+      "type": "map[string]string",
+      "description": "Map of keys and values of the labels on the managed cluster where the policy is propagated.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    },
+    {
+      "name": ".PolicyMetadata",
+      "type": "map[string]any",
+      "description": "Map with the name, namespace, labels, and annotations keys, with values from the root policy.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    }
+  ],
+  "managedExportedValues": [
+    {
+      "name": ".ObjectName",
+      "type": "string",
+      "description": "Name of the selected object from the objectSelector or metadata.name that you specified. Available inside objectDefinition for ConfigurationPolicy.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    },
+    {
+      "name": ".ObjectNamespace",
+      "type": "string",
+      "description": "Name of the selected namespace from spec.namespaceSelector or metadata.namespace that you specified. Applies when the object is not cluster-scoped. Available inside objectDefinition for ConfigurationPolicy.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    },
+    {
+      "name": ".Object",
+      "type": "map[string]any",
+      "description": "Full target object currently on the cluster. Available inside objectDefinition for ConfigurationPolicy.",
+      "source": "RHACM 2.15 Governance §1.2.1 Table 1.4"
+    }
+  ]
+}
