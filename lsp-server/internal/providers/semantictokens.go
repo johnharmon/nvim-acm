@@ -223,20 +223,58 @@ var hubKeywordPatterns = []struct {
 // these overlap as keyword hints so the brace runs read alongside `hub` /
 // `if` / `range`. quoteStart/quoteEnd are the byte offsets *within `inner`*
 // of the opening quote and one past the closing quote.
-func appendStringInnerDelims(tokens []rawToken, inner string, innerStart, quoteStart, quoteEnd int) []rawToken {
+//
+// realHelmRanges (absolute document offsets, sorted by start) lets the
+// caller suppress emission when the inner `{{` is the start of an actual
+// helm expression (e.g. `"{{ .Values.x }}"` in a hub-span body) rather
+// than an escape-form runtime-delimiter pattern. The helm expression's
+// own tokens already classify those bytes; tagging them again as
+// keyword.defaultLibrary would mis-color a real helm `{{`/`}}` as if it
+// were a managed-escape inner marker. Pass nil if no suppression is
+// needed (e.g. tokenization inside a single helm expression body).
+func appendStringInnerDelims(tokens []rawToken, inner string, innerStart, quoteStart, quoteEnd int, realHelmRanges [][2]int) []rawToken {
 	contentStart := quoteStart + 1
 	contentEnd := quoteEnd - 1
 	if contentEnd <= contentStart {
 		return tokens
 	}
+	isHelmStart := func(absOff int) bool {
+		for _, r := range realHelmRanges {
+			if r[0] == absOff {
+				return true
+			}
+			if r[0] > absOff {
+				break
+			}
+		}
+		return false
+	}
+	isHelmEnd := func(absOff int) bool {
+		for _, r := range realHelmRanges {
+			if r[1] == absOff {
+				return true
+			}
+			if r[0] > absOff {
+				break
+			}
+		}
+		return false
+	}
 	// Same defaultLibrary modifier as appendHubKeywords: these are ACM-side
 	// delimiter runs (the `{{`/`}}` that helm renders into runtime markers
 	// for the managed cluster), not go-template control keywords.
 	if n := openDelimRun(inner, contentStart, contentEnd); n > 0 {
-		tokens = append(tokens, rawToken{offset: innerStart + contentStart, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
+		absOpen := innerStart + contentStart
+		if !isHelmStart(absOpen) {
+			tokens = append(tokens, rawToken{offset: absOpen, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
+		}
 	}
 	if n := closeDelimRun(inner, contentStart, contentEnd); n > 0 {
-		tokens = append(tokens, rawToken{offset: innerStart + contentEnd - n, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
+		absCloseStart := innerStart + contentEnd - n
+		absCloseEnd := innerStart + contentEnd
+		if !isHelmEnd(absCloseEnd) {
+			tokens = append(tokens, rawToken{offset: absCloseStart, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
+		}
 	}
 	return tokens
 }
@@ -315,19 +353,27 @@ func appendInsideManagedSpans(tokens []rawToken, text string, vocab vocabulary) 
 	return tokens
 }
 
-// tokenizeBodySkippingHelm runs tokenizeContent on a hub/managed-span body
-// but excludes byte ranges occupied by helm expressions that sit *inside*
-// the body. Those inner expressions are tokenized separately by
-// appendInsideExpressions, so re-tokenizing the surrounding string literal
-// here would double-classify the same bytes (the inner `{{ … }}` bytes
-// would emit both as helm operator/identifier tokens and as ACM-side
-// keyword/string tokens). Instead, walk the body in gaps between inner
-// helm spans, tokenizing each gap as ACM template content.
+// tokenizeBodySkippingHelm tokenizes a hub/managed-span body and treats
+// embedded helm expressions as transparent — their bytes are already
+// classified by appendInsideExpressions, so we don't emit anything new
+// for them, but we also don't let them break the surrounding tokenizer
+// state. In particular, a string `"{{ .Values.x }}"` containing a helm
+// expression must still emit as a single tString covering the whole
+// literal (the inner `{{ … }}` is text-content from the tokenizer's
+// perspective, the helm-level classification overlays it).
+//
+// Splitting the body into gaps and tokenizing each gap independently
+// (the previous approach) breaks string state at gap boundaries: an
+// unterminated `"` at the end of a gap is silently dropped and the next
+// gap starts a *new* string, which mis-pairs with whatever closing `"`
+// happens to come next and leaves real content (function names,
+// `.foo` paths) outside any string token — which is the bug that makes
+// `.rendered-config` inside `".rendered-config"` light up as a property.
 //
 // helmSpans must be sorted by start offset (findExpressionSpans returns
-// them that way).
+// them that way) and non-overlapping.
 func tokenizeBodySkippingHelm(tokens []rawToken, text string, helmSpans []expressionSpan, contentStart, contentEnd int, vocab vocabulary) []rawToken {
-	cursor := contentStart
+	skips := [][2]int{}
 	for _, e := range helmSpans {
 		if e.end <= contentStart {
 			continue
@@ -335,15 +381,131 @@ func tokenizeBodySkippingHelm(tokens []rawToken, text string, helmSpans []expres
 		if e.start >= contentEnd {
 			break
 		}
-		if e.start > cursor {
-			tokens = tokenizeContent(tokens, text[cursor:e.start], cursor, vocab)
+		s := e.start
+		if s < contentStart {
+			s = contentStart
 		}
-		if e.end > cursor {
-			cursor = e.end
+		en := e.end
+		if en > contentEnd {
+			en = contentEnd
 		}
+		skips = append(skips, [2]int{s, en})
 	}
-	if cursor < contentEnd {
-		tokens = tokenizeContent(tokens, text[cursor:contentEnd], cursor, vocab)
+	return tokenizeContentWithSkips(tokens, text[contentStart:contentEnd], contentStart, vocab, skips)
+}
+
+// tokenizeContentWithSkips behaves like tokenizeContent except that any
+// byte range listed in `skips` (absolute document offsets) is skipped
+// over without emitting tokens *or* breaking string-scan state. The
+// outer walk and the inside-string scans both honor the skip list.
+//
+// skips are absolute offsets relative to the document, sorted by start,
+// non-overlapping. innerStart is the absolute offset of `inner[0]` in
+// the document (so localOffset + innerStart gives the absolute offset).
+func tokenizeContentWithSkips(tokens []rawToken, inner string, innerStart int, vocab vocabulary, skips [][2]int) []rawToken {
+	skipFromLocal := func(local int) (int, bool) {
+		abs := innerStart + local
+		for _, r := range skips {
+			if r[0] == abs {
+				return r[1] - innerStart, true
+			}
+			if r[0] > abs {
+				break
+			}
+		}
+		return 0, false
+	}
+
+	n := len(inner)
+	i := 0
+	for i < n {
+		if to, ok := skipFromLocal(i); ok {
+			i = to
+			continue
+		}
+		c := inner[i]
+		switch {
+		case c == ' ' || c == '\t' || c == '\n' || c == '\r':
+			i++
+		case c == '"':
+			start := i
+			i++
+			for i < n && inner[i] != '"' {
+				if to, ok := skipFromLocal(i); ok {
+					i = to
+					continue
+				}
+				if inner[i] == '\\' && i+1 < n {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < n {
+				i++
+			}
+			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i, skips)
+		case c == '`':
+			start := i
+			i++
+			for i < n && inner[i] != '`' {
+				if to, ok := skipFromLocal(i); ok {
+					i = to
+					continue
+				}
+				i++
+			}
+			if i < n {
+				i++
+			}
+			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i, skips)
+		case isDigit(c):
+			start := i
+			for i < n && (isDigit(inner[i]) || inner[i] == '.') {
+				i++
+			}
+			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tNumber})
+		case c == '$':
+			start := i
+			i++
+			for i < n && isWord(inner[i]) {
+				i++
+			}
+			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tVariable})
+		case c == '.':
+			start := i
+			i++
+			if i < n && isIdentStartByte(inner[i]) {
+				for i < n && isWord(inner[i]) {
+					i++
+				}
+				name := inner[start+1 : i]
+				mods := uint32(0)
+				if vocab.acmValues[name] {
+					mods = mDefaultLibrary | mReadonly
+				}
+				tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tProperty, modifiers: mods})
+			} else {
+				tokens = append(tokens, rawToken{offset: innerStart + start, length: 1, tokenType: tOperator})
+			}
+		case isIdentStartByte(c):
+			start := i
+			for i < n && isWord(inner[i]) {
+				i++
+			}
+			name := inner[start:i]
+			tokens = classifyIdent(tokens, innerStart+start, name, vocab)
+		case c == '(' || c == ')' || c == '[' || c == ']' || c == '|' || c == ',':
+			tokens = append(tokens, rawToken{offset: innerStart + i, length: 1, tokenType: tOperator})
+			i++
+		case c == ':' && i+1 < n && inner[i+1] == '=':
+			tokens = append(tokens, rawToken{offset: innerStart + i, length: 2, tokenType: tOperator})
+			i += 2
+		default:
+			i++
+		}
 	}
 	return tokens
 }
@@ -369,7 +531,7 @@ func tokenizeContent(tokens []rawToken, inner string, innerStart int, vocab voca
 				i++
 			}
 			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
-			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i)
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i, nil)
 		case c == '`':
 			start := i
 			i++
@@ -380,7 +542,7 @@ func tokenizeContent(tokens []rawToken, inner string, innerStart int, vocab voca
 				i++
 			}
 			tokens = append(tokens, rawToken{offset: innerStart + start, length: i - start, tokenType: tString})
-			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i)
+			tokens = appendStringInnerDelims(tokens, inner, innerStart, start, i, nil)
 		case isDigit(c):
 			start := i
 			for i < len(inner) && (isDigit(inner[i]) || inner[i] == '.') {

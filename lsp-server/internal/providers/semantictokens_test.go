@@ -257,6 +257,44 @@ func lineColAt(text string, offset int) (uint32, uint32) {
 	return line, col
 }
 
+func TestSemanticTokens_StringSpansHelmExprInBody(t *testing.T) {
+	// User's regression: a string in a hub-escape body that contains a
+	// helm expression — `"{{ $polNs }}"`. The `"…"` must emit as a single
+	// tString covering the whole literal (including the helm expr bytes),
+	// NOT split by the helm expression. Otherwise the body tokenizer
+	// mis-pairs subsequent quotes and treats real string contents like
+	// `.rendered-config` as if they were property accesses outside any
+	// string.
+	text := `{{ "{{hub-" }} index (fromConfigMap "{{ $polNs }}" (print .ManagedClusterName ".rendered-config") "config") {{ "hub}}" }}`
+	toks := SemanticTokens(SemanticTokensInput{Text: text, Catalog: miniCatalog()})
+	if toks == nil {
+		t.Fatalf("expected tokens")
+	}
+
+	// `.rendered-config` starts at offset 79 (length 16). It must NOT
+	// appear as a tProperty token — it's inside the string literal
+	// `".rendered-config"`.
+	renderedLine, renderedChar := lineColAt(text, 79)
+	for _, tok := range decodeTokens(toks.Data) {
+		if tok.line == renderedLine && tok.startChar == renderedChar && tok.tokenType == tProperty {
+			t.Errorf(`'.rendered-config' at offset 79 emitted as tProperty — it's inside a string literal, classification belongs to the surrounding tString token`)
+		}
+	}
+
+	// The string `".rendered-config"` itself must emit as one tString
+	// (length 18 including both quotes) starting at offset 78.
+	stringLine, stringChar := lineColAt(text, 78)
+	foundString := false
+	for _, tok := range decodeTokens(toks.Data) {
+		if tok.line == stringLine && tok.startChar == stringChar && tok.length == 18 && tok.tokenType == tString {
+			foundString = true
+		}
+	}
+	if !foundString {
+		t.Errorf(`expected one tString token covering ".rendered-config" at offset 78 length 18`)
+	}
+}
+
 func TestSemanticTokens_StringInnerDelimitersTrim(t *testing.T) {
 	// Trim variants emit length-3 keyword tokens for `{{-` and `-}}`.
 	// `hub` itself is also length-3 keyword via appendHubKeywords, so the
