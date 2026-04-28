@@ -91,7 +91,7 @@ func (s *Server) initialize(ctx *glsp.Context, params *protocol.InitializeParams
 	if params.InitializationOptions != nil {
 		if m, ok := params.InitializationOptions.(map[string]any); ok {
 			s.mu.Lock()
-			s.settings = rules.Settings(m)
+			s.settings = normalizeSettings(m)
 			s.mu.Unlock()
 		}
 	}
@@ -164,7 +164,7 @@ func (s *Server) didChangeConfiguration(ctx *glsp.Context, params *protocol.DidC
 	if params.Settings != nil {
 		if m, ok := params.Settings.(map[string]any); ok {
 			s.mu.Lock()
-			s.settings = rules.Settings(m)
+			s.settings = normalizeSettings(m)
 			s.mu.Unlock()
 			for uri := range s.documents {
 				s.publishDiagnostics(ctx, uri)
@@ -172,6 +172,31 @@ func (s *Server) didChangeConfiguration(ctx *glsp.Context, params *protocol.DidC
 		}
 	}
 	return nil
+}
+
+// normalizeSettings strips the outer `acm.*` namespace wrapper that both
+// the Neovim Lua client and the VSCode extension nest their settings
+// under, so rule code can read paths like `rules.<id>.severity` or
+// `acm.version` directly without having to know the wrapping convention.
+//
+// Without this strip, rule lookups such as
+//
+//	Get(ctx.Settings, "rules.policy-name-length.maxLength", 63)
+//
+// silently miss because the user-supplied value lives at
+// `acm.rules.policy-name-length.maxLength` in the raw init-options
+// tree, and every rule falls back to its hardcoded default — making
+// runtime configuration look like it has no effect.
+//
+// If the top-level map has exactly one key `acm` whose value is a
+// map, return that inner map. Otherwise return the raw map unchanged
+// (so a flat shape, or a future schema that drops the wrapper, still
+// works).
+func normalizeSettings(m map[string]any) rules.Settings {
+	if inner, ok := m["acm"].(map[string]any); ok {
+		return rules.Settings(inner)
+	}
+	return rules.Settings(m)
 }
 
 func (s *Server) completion(ctx *glsp.Context, params *protocol.CompletionParams) (any, error) {

@@ -136,14 +136,13 @@ Inside Neovim after a binary rebuild:
   new `acm-2.16.json` alongside, loader auto-discovers.
 - **gopls workspace warnings** when editing Go from a different repo —
   ignore them. Real check is `go build ./...` from `lsp-server/`.
-- **Settings prefix mismatch** (known bug) — the Lua client wraps
-  rule settings under `settings.acm.rules.<id>.*`, but rules read
-  via `Get(ctx.Settings, "rules.<id>.*", default)` — no `acm.` prefix.
-  As of writing, user-supplied rule overrides don't actually reach
-  the rules; defaults always win. Either strip the `acm` wrapper
-  server-side in `initialize` / `didChangeConfiguration` (cleanest)
-  or rewrite rule paths to start with `acm.rules.<id>.*`. Tracked
-  in `TODOS.md`.
+- **Settings normalization** — both the Lua client and the VSCode
+  extension wrap their settings under an outer `acm.*` namespace.
+  `normalizeSettings` in `internal/server/server.go` strips that
+  wrapper on `initialize` / `didChangeConfiguration` so rule code
+  can read paths like `rules.<id>.*` and `acm.version` directly.
+  Don't undo that strip — the wrapper is the client-side shape, the
+  unwrapped form is the rule-side contract.
 
 ## Pending / parked
 

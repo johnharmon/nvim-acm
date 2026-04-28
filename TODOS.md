@@ -234,7 +234,7 @@ only show up against real values.
 
 ### Settings prefix mismatch — user rule overrides don't reach rules
 
-**Status:** proposed (high priority — silent functional bug)
+**Status:** done
 **Difficulty:** low
 
 **Symptom:** The Lua client `setup{ settings = { acm = { rules = {…} } } }`
@@ -267,6 +267,15 @@ Recommend (1).
   alone.
 
 **Notes:**
+- Fixed by adding `normalizeSettings` in
+  `internal/server/server.go`, called from both `initialize` and
+  `didChangeConfiguration`. When init-options is `{ acm: <map> }`,
+  the inner map is stored as `s.settings`; otherwise the raw map
+  is used. Backward-compatible with any future flat-shape client.
+- Tests cover wrapped, flat, missing-acm, and acm-not-a-map shapes
+  (`internal/server/server_test.go`).
+- Rule overrides like `rules.policy-name-length.maxLength = 120`
+  set via the Lua client now actually take effect.
 
 ---
 
@@ -344,12 +353,10 @@ When picking one of these up, the existing flow is:
 1. Create `lsp-server/internal/rules/<name>.go` modeled after the
    existing rules. Implement `ID() string` and `Run(ctx Context) []protocol.Diagnostic`.
 2. Read settings via `Get` / `GetInt` / `GetStringSlice` against
-   `rules.<rule-id>.*` paths — *intended* to auto-flow from the
-   user's `init.lua` `settings.acm.rules.<rule-id>` tree, but see
-   the **Settings prefix mismatch** bug above: the wrapper isn't
-   stripped on the server side yet, so user-supplied overrides
-   currently reach defaults only. Fix that first if your rule
-   needs runtime configuration to be respected.
+   `rules.<rule-id>.*` paths. They auto-flow from the user's
+   `init.lua` `settings.acm.rules.<rule-id>` tree —
+   `normalizeSettings` in `internal/server/server.go` strips the
+   outer `acm` wrapper so rule paths don't need the prefix.
 3. Register in `internal/server/server.go`'s rule list.
 4. Add a unit test if the logic is non-trivial; the existing rules
    don't all have tests, but ones that touch `values/` or `context/`
