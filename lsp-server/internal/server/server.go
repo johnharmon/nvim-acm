@@ -60,6 +60,8 @@ func New(cfg Config) *Server {
 			rules.NewPolicyNameTemplate(cache),
 			rules.HubForbiddenFunctions,
 			rules.LookupDefaultDict,
+			rules.UnclosedDelimiters,
+			rules.NewUnknownFunction(loader),
 		},
 	}
 	h := &protocol.Handler{

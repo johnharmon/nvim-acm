@@ -156,6 +156,13 @@ func isInsideAny(ranges [][2]int, offset int) bool {
 	return false
 }
 
+// FindHelmStringRanges is the exported wrapper for findHelmStringRanges so
+// rule code outside this package can skip identifier matches that land inside
+// string literals.
+func FindHelmStringRanges(text string) [][2]int {
+	return findHelmStringRanges(text)
+}
+
 // findHelmStringRanges scans Helm `{{ ... }}` expressions and returns the
 // byte ranges of every string literal inside (`"..."` or `\`...\``). Ranges
 // are inclusive of both quote characters.

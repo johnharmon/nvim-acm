@@ -49,6 +49,12 @@ local default_config = {
         ["policy-name-template"] = { enabled = true, mode = "strict" },
         ["hub-forbidden-functions"] = { enabled = true, severity = "error" },
         ["lookup-default-dict"] = { enabled = true, severity = "warning" },
+        ["unclosed-delimiters"] = { enabled = true, severity = "error" },
+        -- Default off: catalog sprig coverage is intentionally a subset,
+        -- so false positives are non-zero. Opt in once you've confirmed
+        -- your chart's sprig usage is in the catalog, or extend via
+        -- rules.unknown-function.allowedFunctions.
+        ["unknown-function"] = { enabled = false, severity = "warning", allowedFunctions = {} },
       },
     },
   },

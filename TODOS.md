@@ -16,7 +16,7 @@ calendar estimate:
 
 ### Unknown function calls in templates
 
-**Status:** proposed
+**Status:** done (default off — opt-in via settings)
 **Difficulty:** low
 
 **Approach:** For each call site found by walking hub / managed / helm
@@ -36,6 +36,16 @@ catalog entry matches.
   and add to the per-call resolver.
 
 **Notes:**
+- Implemented in `lsp-server/internal/rules/unknownFunction.go`.
+  Wired through a `CatalogResolver` interface so unit tests can fake
+  the catalog without touching disk.
+- Defaults to **disabled** because of the sprig-subset false-positive
+  risk. Settings: `rules.unknown-function.enabled` (bool),
+  `rules.unknown-function.severity`, and
+  `rules.unknown-function.allowedFunctions` (string list to extend
+  the known set).
+- Followups still open: vendoring the full sprig name list, scanning
+  workspace `{{ define "x" }}` to count user templates as known.
 
 ---
 
@@ -65,7 +75,7 @@ identifier range.
 
 ### Unclosed `{{` / mismatched `hub` pair
 
-**Status:** proposed
+**Status:** done
 **Difficulty:** low
 
 **Approach:** Pure-string scan for `{{` openers without a matching
@@ -80,6 +90,15 @@ balancing `hub}}`. Emit on the dangling delimiter range.
   cleanly. Probably worth keeping as the first-line check.
 
 **Notes:**
+- Implemented in `lsp-server/internal/rules/unclosedDelimiters.go`.
+  Default-on with severity `error`. Two passes: balanced `{{`/`}}`
+  scan, then a greedy pair-up of `{{hub` / `hub}}` markers via
+  `context.FindHelmStringRanges` to skip matches inside string
+  literals (so escape-form `{{ "{{hub" }}` doesn't appear orphaned).
+- Settings: `rules.unclosed-delimiters.enabled`, `.severity`.
+- Multi-line `{{-` / `-}}` works because the close-finder doesn't
+  care about newlines. Tested across direct, escape-form, and stray-
+  closer cases.
 
 ---
 
