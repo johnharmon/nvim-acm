@@ -2,6 +2,7 @@ package rules
 
 import (
 	"regexp"
+	"sort"
 
 	"github.com/acm-ls/lsp-server/internal/context"
 	protocol "github.com/tliron/glsp/protocol_3_16"
@@ -11,16 +12,22 @@ type unclosedDelimiters struct{}
 
 func (unclosedDelimiters) ID() string { return "unclosed-delimiters" }
 
-// Run flags two structural problems:
+// Run flags structural problems at four conceptual layers:
 //
-//  1. Go-template `{{` openers that don't have a matching `}}` closer (and
-//     the symmetric stray `}}` with no preceding `{{`).
-//  2. ACM hub-template `{{hub` / `hub}}` markers that aren't paired —
-//     either an opener with no closer or a closer with no opener.
+//  1. Go-template `{{` openers without a matching `}}` closer (and the
+//     symmetric stray `}}`).
+//  2. Direct ACM hub markers `{{hub` / `hub}}` that aren't paired.
+//  3. Hub-escape pairs `{{ "{{hub" }}` / `{{ "hub}}" }}` — the form
+//     helm renders into runtime `{{hub`/`hub}}` markers — that aren't
+//     paired.
+//  4. Managed-escape pairs `{{ "{{" }}` / `{{ "}}" }}` — the form
+//     helm renders into the runtime `{{`/`}}` the managed-cluster ACM
+//     controller evaluates — that aren't paired.
 //
-// Cheap to compute and runs alongside the heavier syntax check (the future
-// text/template/parse rule), catching the most common authoring mistakes
-// without depending on an AST.
+// Each layer is its own state-machine pass over the document. Cheap to
+// compute and runs alongside the heavier syntax check (the future
+// text/template/parse rule), catching the most common authoring
+// mistakes without depending on an AST.
 func (unclosedDelimiters) Run(ctx Context) []protocol.Diagnostic {
 	if !Get(ctx.Settings, "rules.unclosed-delimiters.enabled", true) {
 		return nil
@@ -33,79 +40,140 @@ func (unclosedDelimiters) Run(ctx Context) []protocol.Diagnostic {
 
 	out := []protocol.Diagnostic{}
 	out = append(out, scanGoTemplateDelims(ctx.Text, sev, code, source)...)
-	out = append(out, scanHubMarkerPairs(ctx.Text, sev, code, source)...)
+	out = append(out, scanMarkerPairs(ctx.Text, directHubPair, sev, code, source)...)
+	out = append(out, scanMarkerPairs(ctx.Text, hubEscapePair, sev, code, source)...)
+	out = append(out, scanMarkerPairs(ctx.Text, managedEscapePair, sev, code, source)...)
 	return out
 }
 
 var UnclosedDelimiters Rule = unclosedDelimiters{}
 
-// scanGoTemplateDelims walks the document and reports
-//   - `{{` that never closes
-//   - `}}` with no opener that consumed it
+// scanGoTemplateDelims walks the document with a small state machine and
+// reports every unbalanced `{{` and stray `}}`. State:
+//
+//	OUTSIDE  no open expression — `{{` opens, `}}` is stray
+//	INSIDE   an expression is open — `}}` closes, another `{{` means
+//	         the previous opener was never closed; strings (`"…"` and
+//	         `\`…\``) are skipped while INSIDE so `}}` literals don't
+//	         falsely close.
+//
+// Stack-style pairing rather than greedy "next `}}` after this `{{`",
+// because greedy pairing silently steals the close of a later balanced
+// expression to satisfy an earlier unclosed one — hiding imbalance
+// during live editing.
 func scanGoTemplateDelims(text string, sev protocol.DiagnosticSeverity, code protocol.IntegerOrString, source string) []protocol.Diagnostic {
 	out := []protocol.Diagnostic{}
-	n := len(text)
-	covered := make([]bool, n) // bytes covered by a balanced expression span
-
-	i := 0
-	unclosedReported := false
-	for i+1 < n {
-		if text[i] != '{' || text[i+1] != '{' {
-			i++
-			continue
-		}
-		end := findExprClose(text, i+2)
-		if end < 0 {
-			if !unclosedReported {
-				out = append(out, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: offsetToPosition(text, i),
-						End:   offsetToPosition(text, i+2),
-					},
-					Severity: &sev,
-					Code:     &code,
-					Source:   &source,
-					Message:  `Unclosed go-template delimiter "{{" — no matching "}}".`,
-				})
-				unclosedReported = true
-			}
-			break
-		}
-		for k := i; k < end+2 && k < n; k++ {
-			covered[k] = true
-		}
-		i = end + 2
+	emit := func(start, end int, msg string) {
+		out = append(out, protocol.Diagnostic{
+			Range: protocol.Range{
+				Start: offsetToPosition(text, start),
+				End:   offsetToPosition(text, end),
+			},
+			Severity: &sev,
+			Code:     &code,
+			Source:   &source,
+			Message:  msg,
+		})
 	}
 
-	for j := 0; j+1 < n; j++ {
-		if text[j] == '}' && text[j+1] == '}' && !covered[j] {
-			out = append(out, protocol.Diagnostic{
-				Range: protocol.Range{
-					Start: offsetToPosition(text, j),
-					End:   offsetToPosition(text, j+2),
-				},
-				Severity: &sev,
-				Code:     &code,
-				Source:   &source,
-				Message:  `Stray closing delimiter "}}" — no matching "{{".`,
-			})
-			j++
+	n := len(text)
+	openerOffset := -1 // -1 means OUTSIDE
+	i := 0
+	for i < n {
+		c := text[i]
+		if openerOffset >= 0 && (c == '"' || c == '`') {
+			quote := c
+			i++
+			for i < n && text[i] != quote {
+				if quote == '"' && text[i] == '\\' && i+1 < n {
+					i += 2
+					continue
+				}
+				i++
+			}
+			if i < n {
+				i++
+			}
+			continue
 		}
+		if i+1 < n && c == '{' && text[i+1] == '{' {
+			if openerOffset >= 0 {
+				emit(openerOffset, openerOffset+2, `Unclosed go-template delimiter "{{" — no matching "}}".`)
+			}
+			openerOffset = i
+			i += 2
+			continue
+		}
+		if i+1 < n && c == '}' && text[i+1] == '}' {
+			if openerOffset < 0 {
+				emit(i, i+2, `Stray closing delimiter "}}" — no matching "{{".`)
+			} else {
+				openerOffset = -1
+			}
+			i += 2
+			continue
+		}
+		i++
+	}
+	if openerOffset >= 0 {
+		emit(openerOffset, openerOffset+2, `Unclosed go-template delimiter "{{" — no matching "}}".`)
 	}
 	return out
 }
 
+// markerPair describes a layer of paired delimiters.
+type markerPair struct {
+	openRE         *regexp.Regexp
+	closeRE        *regexp.Regexp
+	openOrphanMsg  string
+	closeOrphanMsg string
+	// skipInString controls whether matches that fall inside a helm-string
+	// literal are ignored. Direct hub markers (`{{hub`/`hub}}`) need this
+	// because they false-match inside escape-form string literals; escape-
+	// form regexes (`{{ "{{" }}` etc.) own the surrounding `{{`/`}}` and
+	// the `"…"` is part of the matched structure, so the start of the
+	// match is never inside another string.
+	skipInString bool
+}
+
 var (
-	hubOpenRE  = regexp.MustCompile(`\{\{-?\s*hub\b`)
-	hubCloseRE = regexp.MustCompile(`-?\s*hub\s*-?\}\}`)
+	directHubPair = markerPair{
+		openRE:         regexp.MustCompile(`\{\{-?\s*hub\b`),
+		closeRE:        regexp.MustCompile(`-?\s*hub\s*-?\}\}`),
+		openOrphanMsg:  `Hub-template "{{hub" opener has no matching "hub}}" closer.`,
+		closeOrphanMsg: `Hub-template "hub}}" closer has no matching "{{hub" opener.`,
+		skipInString:   true,
+	}
+	hubEscapePair = markerPair{
+		openRE:         regexp.MustCompile(`\{\{-?\s*"\{\{hub-?"\s*-?\}\}`),
+		closeRE:        regexp.MustCompile(`\{\{-?\s*"-?hub\}\}"\s*-?\}\}`),
+		openOrphanMsg:  `Hub-escape opener {{ "{{hub" }} has no matching {{ "hub}}" }} closer.`,
+		closeOrphanMsg: `Hub-escape closer {{ "hub}}" }} has no matching {{ "{{hub" }} opener.`,
+		skipInString:   false,
+	}
+	managedEscapePair = markerPair{
+		openRE:         regexp.MustCompile(`\{\{-?\s*"\{\{-?"\s*-?\}\}`),
+		closeRE:        regexp.MustCompile(`\{\{-?\s*"-?\}\}"\s*-?\}\}`),
+		openOrphanMsg:  `Managed-escape opener {{ "{{" }} has no matching {{ "}}" }} closer.`,
+		closeOrphanMsg: `Managed-escape closer {{ "}}" }} has no matching {{ "{{" }} opener.`,
+		skipInString:   false,
+	}
 )
 
-// scanHubMarkerPairs greedily pairs `{{hub` openers with the next `hub}}`
-// closer that follows. Anything left over is an orphan. String-literal
-// contents are skipped via context.FindHelmStringRanges so the inner `{{hub`
-// of an escape-form pattern (`{{ "{{hub" }}`) doesn't show up as orphan.
-func scanHubMarkerPairs(text string, sev protocol.DiagnosticSeverity, code protocol.IntegerOrString, source string) []protocol.Diagnostic {
-	stringRanges := context.FindHelmStringRanges(text)
+// scanMarkerPairs walks open/close matches in document order and runs the
+// same state machine as scanGoTemplateDelims. An unclosed opener still in
+// the "open" slot when a new opener arrives is reported as orphan; a
+// closer with nothing open is reported as stray.
+func scanMarkerPairs(text string, p markerPair, sev protocol.DiagnosticSeverity, code protocol.IntegerOrString, source string) []protocol.Diagnostic {
+	type marker struct {
+		isOpen     bool
+		start, end int
+	}
+
+	var stringRanges [][2]int
+	if p.skipInString {
+		stringRanges = context.FindHelmStringRanges(text)
+	}
 	insideString := func(off int) bool {
 		for _, r := range stringRanges {
 			if off >= r[0] && off < r[1] {
@@ -115,68 +183,54 @@ func scanHubMarkerPairs(text string, sev protocol.DiagnosticSeverity, code proto
 		return false
 	}
 
-	type marker struct {
-		start, end int
-	}
-	opens := []marker{}
-	for _, m := range hubOpenRE.FindAllStringIndex(text, -1) {
-		if insideString(m[0]) {
+	markers := []marker{}
+	for _, m := range p.openRE.FindAllStringIndex(text, -1) {
+		if p.skipInString && insideString(m[0]) {
 			continue
 		}
-		opens = append(opens, marker{start: m[0], end: m[1]})
+		markers = append(markers, marker{isOpen: true, start: m[0], end: m[1]})
 	}
-	closes := []marker{}
-	for _, m := range hubCloseRE.FindAllStringIndex(text, -1) {
-		if insideString(m[0]) {
+	for _, m := range p.closeRE.FindAllStringIndex(text, -1) {
+		if p.skipInString && insideString(m[0]) {
 			continue
 		}
-		closes = append(closes, marker{start: m[0], end: m[1]})
+		markers = append(markers, marker{isOpen: false, start: m[0], end: m[1]})
 	}
-
-	usedOpens := make([]bool, len(opens))
-	usedCloses := make([]bool, len(closes))
-	ci := 0
-	for oi, o := range opens {
-		for ; ci < len(closes); ci++ {
-			if closes[ci].start >= o.end {
-				usedOpens[oi] = true
-				usedCloses[ci] = true
-				ci++
-				break
-			}
-		}
-	}
+	sort.Slice(markers, func(i, j int) bool { return markers[i].start < markers[j].start })
 
 	out := []protocol.Diagnostic{}
-	for oi, used := range usedOpens {
-		if used {
-			continue
-		}
+	emit := func(start, end int, msg string) {
 		out = append(out, protocol.Diagnostic{
 			Range: protocol.Range{
-				Start: offsetToPosition(text, opens[oi].start),
-				End:   offsetToPosition(text, opens[oi].end),
+				Start: offsetToPosition(text, start),
+				End:   offsetToPosition(text, end),
 			},
 			Severity: &sev,
 			Code:     &code,
 			Source:   &source,
-			Message:  `Hub-template "{{hub" opener has no matching "hub}}" closer.`,
+			Message:  msg,
 		})
 	}
-	for ci, used := range usedCloses {
-		if used {
+
+	openIdx := -1
+	for i, m := range markers {
+		if m.isOpen {
+			if openIdx >= 0 {
+				prev := markers[openIdx]
+				emit(prev.start, prev.end, p.openOrphanMsg)
+			}
+			openIdx = i
 			continue
 		}
-		out = append(out, protocol.Diagnostic{
-			Range: protocol.Range{
-				Start: offsetToPosition(text, closes[ci].start),
-				End:   offsetToPosition(text, closes[ci].end),
-			},
-			Severity: &sev,
-			Code:     &code,
-			Source:   &source,
-			Message:  `Hub-template "hub}}" closer has no matching "{{hub" opener.`,
-		})
+		if openIdx < 0 {
+			emit(m.start, m.end, p.closeOrphanMsg)
+			continue
+		}
+		openIdx = -1
+	}
+	if openIdx >= 0 {
+		prev := markers[openIdx]
+		emit(prev.start, prev.end, p.openOrphanMsg)
 	}
 	return out
 }

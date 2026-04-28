@@ -90,6 +90,93 @@ func TestUnclosedDelimiters_EscapeFormBalanced(t *testing.T) {
 	}
 }
 
+func TestUnclosedDelimiters_UnclosedBeforeBalancedExpr(t *testing.T) {
+	// Regression: an unclosed `{{` earlier in the file used to silently
+	// steal the close of a later balanced expression with the old greedy-
+	// pairing scanner, hiding the imbalance entirely.
+	text := `line1: {{
+line2: {{ valid }}
+`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 diagnostic for the unclosed line1 {{, got %d: %+v", len(diags), diags)
+	}
+	if !strings.Contains(diags[0].Message, `Unclosed go-template delimiter`) {
+		t.Errorf("unexpected message: %q", diags[0].Message)
+	}
+	if diags[0].Range.Start.Line != 0 {
+		t.Errorf("diagnostic should fire on line 0, got line %d", diags[0].Range.Start.Line)
+	}
+}
+
+func TestUnclosedDelimiters_PartialEscapeFormFires(t *testing.T) {
+	// Mid-typing the managed-escape pattern. Two failures show up:
+	//   - the second helm `{{` (in `{{ "}}"`) never closes — go-template
+	//     layer reports unclosed `{{`
+	//   - the managed-escape opener `{{ "{{" }}` has no closing
+	//     `{{ "}}" }}` — escape-pair layer reports orphan opener
+	text := `data: |
+  {{ "{{" }} $myValue := "test" {{ "}}"
+`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 2 {
+		t.Fatalf("want 2 diagnostics (unclosed {{ + orphan managed-escape opener), got %d: %+v", len(diags), diags)
+	}
+	gotMsgs := []string{diags[0].Message, diags[1].Message}
+	wantSubstrs := []string{`Unclosed go-template delimiter`, `Managed-escape opener`}
+	for _, want := range wantSubstrs {
+		found := false
+		for _, m := range gotMsgs {
+			if strings.Contains(m, want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing diagnostic containing %q in %+v", want, gotMsgs)
+		}
+	}
+}
+
+func TestUnclosedDelimiters_BalancedManagedEscape(t *testing.T) {
+	// User's original case: a balanced managed-escape line should produce
+	// zero diagnostics.
+	text := `{{ "{{" }} $myValue := "test" {{ "}}" }}`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced managed-escape should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_OrphanManagedEscapeCloser(t *testing.T) {
+	text := `prefix {{ "}}" }} suffix`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `Managed-escape closer`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a managed-escape orphan-closer diagnostic, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_OrphanHubEscapePair(t *testing.T) {
+	// Hub-escape opener with no matching closer.
+	text := `prefix {{ "{{hub" }} body without closer`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	found := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, `Hub-escape opener`) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected a hub-escape orphan-opener diagnostic, got: %+v", diags)
+	}
+}
+
 func TestUnclosedDelimiters_DisabledByConfig(t *testing.T) {
 	text := `key: {{ printf "x"`
 	settings := Settings{"rules": map[string]any{"unclosed-delimiters": map[string]any{"enabled": false}}}
