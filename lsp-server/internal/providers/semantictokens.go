@@ -294,23 +294,56 @@ func appendInsideExpressions(tokens []rawToken, text string, vocab vocabulary) [
 }
 
 func appendInsideHubSpans(tokens []rawToken, text string, vocab vocabulary) []rawToken {
+	helmSpans := findExpressionSpans(text)
 	for _, span := range context.FindHubSpans(text) {
 		if span.ContentEnd <= span.ContentStart {
 			continue
 		}
-		inner := text[span.ContentStart:span.ContentEnd]
-		tokens = tokenizeContent(tokens, inner, span.ContentStart, vocab)
+		tokens = tokenizeBodySkippingHelm(tokens, text, helmSpans, span.ContentStart, span.ContentEnd, vocab)
 	}
 	return tokens
 }
 
 func appendInsideManagedSpans(tokens []rawToken, text string, vocab vocabulary) []rawToken {
+	helmSpans := findExpressionSpans(text)
 	for _, span := range context.FindManagedSpans(text) {
 		if span.ContentEnd <= span.ContentStart {
 			continue
 		}
-		inner := text[span.ContentStart:span.ContentEnd]
-		tokens = tokenizeContent(tokens, inner, span.ContentStart, vocab)
+		tokens = tokenizeBodySkippingHelm(tokens, text, helmSpans, span.ContentStart, span.ContentEnd, vocab)
+	}
+	return tokens
+}
+
+// tokenizeBodySkippingHelm runs tokenizeContent on a hub/managed-span body
+// but excludes byte ranges occupied by helm expressions that sit *inside*
+// the body. Those inner expressions are tokenized separately by
+// appendInsideExpressions, so re-tokenizing the surrounding string literal
+// here would double-classify the same bytes (the inner `{{ … }}` bytes
+// would emit both as helm operator/identifier tokens and as ACM-side
+// keyword/string tokens). Instead, walk the body in gaps between inner
+// helm spans, tokenizing each gap as ACM template content.
+//
+// helmSpans must be sorted by start offset (findExpressionSpans returns
+// them that way).
+func tokenizeBodySkippingHelm(tokens []rawToken, text string, helmSpans []expressionSpan, contentStart, contentEnd int, vocab vocabulary) []rawToken {
+	cursor := contentStart
+	for _, e := range helmSpans {
+		if e.end <= contentStart {
+			continue
+		}
+		if e.start >= contentEnd {
+			break
+		}
+		if e.start > cursor {
+			tokens = tokenizeContent(tokens, text[cursor:e.start], cursor, vocab)
+		}
+		if e.end > cursor {
+			cursor = e.end
+		}
+	}
+	if cursor < contentEnd {
+		tokens = tokenizeContent(tokens, text[cursor:contentEnd], cursor, vocab)
 	}
 	return tokens
 }

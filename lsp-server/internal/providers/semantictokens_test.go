@@ -164,6 +164,99 @@ func TestSemanticTokens_StringInnerDelimiters(t *testing.T) {
 	}
 }
 
+func TestSemanticTokens_NestedHelmInsideHubEscapeBody(t *testing.T) {
+	// Real-world nesting: a helm `{{ .Values.x }}` expression sits in a
+	// string literal inside the body of a hub-escape span. The inner helm
+	// expression must classify as helm (operator + property tokens), not
+	// as ACM-side keyword.defaultLibrary markers from the string-inner-
+	// delimiter pass running over the surrounding hub-span body.
+	text := `{{ "{{hub" }} fromSecret "{{ .Values.policy_namespace }}" "secret" "key" {{ "hub}}" }}`
+	toks := SemanticTokens(SemanticTokensInput{Text: text, Catalog: miniCatalog()})
+	if toks == nil {
+		t.Fatalf("expected tokens")
+	}
+	// Position of the inner `{{` (offset 26 in the text). It should be
+	// emitted as an operator (length 2, type tOperator) by
+	// appendInsideExpressions, NOT as keyword.defaultLibrary by the
+	// surrounding hub-span body's string-inner-delimiter pass.
+	innerOpenLine, innerOpenChar := lineColAt(text, 26)
+	foundOperator := false
+	conflictingKeyword := false
+	for _, tok := range decodeTokens(toks.Data) {
+		if tok.line == innerOpenLine && tok.startChar == innerOpenChar && tok.length == 2 {
+			if tok.tokenType == tOperator {
+				foundOperator = true
+			}
+			if tok.tokenType == tKeyword {
+				conflictingKeyword = true
+			}
+		}
+	}
+	if !foundOperator {
+		t.Errorf("expected inner `{{` at offset 26 to emit as tOperator (helm-level)")
+	}
+	if conflictingKeyword {
+		t.Errorf("inner `{{` at offset 26 should NOT also emit as tKeyword (would be the bug — ACM-side classification of a helm expression)")
+	}
+
+	// `fromSecret` is between the opener escape and the inner helm
+	// expression — that gap is hub-side body content and should still
+	// classify as a function token.
+	fromSecretLine, fromSecretChar := lineColAt(text, 14)
+	foundFn := false
+	for _, tok := range decodeTokens(toks.Data) {
+		if tok.line == fromSecretLine && tok.startChar == fromSecretChar && tok.length == 10 && tok.tokenType == tFunction {
+			foundFn = true
+		}
+	}
+	if !foundFn {
+		t.Errorf("expected fromSecret at offset 14 to still classify as function (hub-side body content outside the inner helm span)")
+	}
+}
+
+type decodedTok struct {
+	line, startChar uint32
+	length          uint32
+	tokenType       uint32
+	mods            uint32
+}
+
+func decodeTokens(data []uint32) []decodedTok {
+	out := []decodedTok{}
+	var line, char uint32
+	for i := 0; i+4 < len(data); i += 5 {
+		dl := data[i]
+		ds := data[i+1]
+		if dl != 0 {
+			line += dl
+			char = ds
+		} else {
+			char += ds
+		}
+		out = append(out, decodedTok{
+			line:      line,
+			startChar: char,
+			length:    data[i+2],
+			tokenType: data[i+3],
+			mods:      data[i+4],
+		})
+	}
+	return out
+}
+
+func lineColAt(text string, offset int) (uint32, uint32) {
+	var line, col uint32
+	for i := 0; i < offset && i < len(text); i++ {
+		if text[i] == '\n' {
+			line++
+			col = 0
+		} else {
+			col++
+		}
+	}
+	return line, col
+}
+
 func TestSemanticTokens_StringInnerDelimitersTrim(t *testing.T) {
 	// Trim variants emit length-3 keyword tokens for `{{-` and `-}}`.
 	// `hub` itself is also length-3 keyword via appendHubKeywords, so the
