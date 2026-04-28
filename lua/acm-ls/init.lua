@@ -144,40 +144,51 @@ function M.status()
 end
 
 -- Highlight-group link table: per-language LSP semantic groups → @-namespace
--- tree-sitter captures most colorschemes already style. The language-specific
--- groups (.yaml, .helm) are set unconditionally because Neovim's built-in
--- vim.lsp.semantic_tokens module otherwise links them through a no-fg chain
+-- tree-sitter captures most colorschemes already style.
+--
+-- Neovim's vim.lsp.semantic_tokens module emits three families of groups
+-- per token, and you have to target the exact name it generates:
+--   @lsp.type.<type>.<lang>                          base type
+--   @lsp.mod.<modifier>.<lang>                       per modifier
+--   @lsp.typemod.<type>.<modifier>.<lang>            combined (most specific)
+-- There is no @lsp.type.<type>.<modifier> form — links pointed at that
+-- shape are dead.
+--
+-- The language-specific entries are set unconditionally because Neovim's
+-- own attach-time defaults otherwise route them through a no-fg chain
 -- (.helm → @lsp.type.variable → @variable, where @variable usually has no
--- explicit color either) and you fall through to whatever treesitter set.
--- The base @-namespace targets are still respectable so themes that style
--- @variable/@function/etc. give us colors automatically.
+-- explicit color either). The @-namespace targets used here are ones
+-- most colorschemes already style, so we get sensible colors out of the
+-- box.
 local default_links = {
-  ["@lsp.type.variable.yaml"]                          = "@variable",
-  ["@lsp.type.variable.helm"]                          = "@variable",
-  ["@lsp.type.property.yaml"]                          = "@property",
-  ["@lsp.type.property.helm"]                          = "@property",
-  ["@lsp.type.property.defaultLibrary.readonly.yaml"]  = "@variable.builtin",
-  ["@lsp.type.property.defaultLibrary.readonly.helm"]  = "@variable.builtin",
-  ["@lsp.type.function.yaml"]                          = "@function",
-  ["@lsp.type.function.helm"]                          = "@function",
-  ["@lsp.type.function.defaultLibrary.yaml"]           = "@function.builtin",
-  ["@lsp.type.function.defaultLibrary.helm"]           = "@function.builtin",
-  ["@lsp.type.keyword.yaml"]                           = "@keyword",
-  ["@lsp.type.keyword.helm"]                           = "@keyword",
+  ["@lsp.type.variable.yaml"]                            = "@variable",
+  ["@lsp.type.variable.helm"]                            = "@variable",
+  ["@lsp.type.property.yaml"]                            = "@property",
+  ["@lsp.type.property.helm"]                            = "@property",
+  ["@lsp.typemod.property.defaultLibrary.yaml"]          = "@variable.builtin",
+  ["@lsp.typemod.property.defaultLibrary.helm"]          = "@variable.builtin",
+  ["@lsp.typemod.property.readonly.yaml"]                = "@variable.builtin",
+  ["@lsp.typemod.property.readonly.helm"]                = "@variable.builtin",
+  ["@lsp.type.function.yaml"]                            = "@function",
+  ["@lsp.type.function.helm"]                            = "@function",
+  ["@lsp.typemod.function.defaultLibrary.yaml"]          = "@function.builtin",
+  ["@lsp.typemod.function.defaultLibrary.helm"]          = "@function.builtin",
+  ["@lsp.type.keyword.yaml"]                             = "@keyword",
+  ["@lsp.type.keyword.helm"]                             = "@keyword",
   -- ACM-side keyword markers (the `hub` identifier and the inner `{{`/`}}`
   -- of escape-form strings). Same TYPE as go-template keywords but tagged
-  -- with the `defaultLibrary` modifier so colorschemes / user overrides can
-  -- give them a distinct color from `if`/`range`/`else`/etc.
-  ["@lsp.type.keyword.defaultLibrary.yaml"]            = "@keyword.directive",
-  ["@lsp.type.keyword.defaultLibrary.helm"]            = "@keyword.directive",
-  ["@lsp.type.string.yaml"]                            = "@string",
-  ["@lsp.type.string.helm"]                            = "@string",
-  ["@lsp.type.number.yaml"]                            = "@number",
-  ["@lsp.type.number.helm"]                            = "@number",
-  ["@lsp.type.operator.yaml"]                          = "@operator",
-  ["@lsp.type.operator.helm"]                          = "@operator",
-  ["@lsp.type.comment.yaml"]                           = "@comment",
-  ["@lsp.type.comment.helm"]                           = "@comment",
+  -- with the `defaultLibrary` modifier so colorschemes / user overrides
+  -- can give them a distinct color from `if`/`range`/`else`/etc.
+  ["@lsp.typemod.keyword.defaultLibrary.yaml"]           = "@keyword.directive",
+  ["@lsp.typemod.keyword.defaultLibrary.helm"]           = "@keyword.directive",
+  ["@lsp.type.string.yaml"]                              = "@string",
+  ["@lsp.type.string.helm"]                              = "@string",
+  ["@lsp.type.number.yaml"]                              = "@number",
+  ["@lsp.type.number.helm"]                              = "@number",
+  ["@lsp.type.operator.yaml"]                            = "@operator",
+  ["@lsp.type.operator.helm"]                            = "@operator",
+  ["@lsp.type.comment.yaml"]                             = "@comment",
+  ["@lsp.type.comment.helm"]                             = "@comment",
 }
 
 local function apply_default_highlights()
