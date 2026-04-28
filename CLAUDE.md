@@ -18,9 +18,17 @@ no `Co-Authored-By` trailer.
 
 ## What's already done
 
-- **5 diagnostic rules** (`policy-name-length`, `policy-name-pattern`,
-  `policy-name-template` with strict/resolve/both, `hub-forbidden-functions`,
-  `lookup-default-dict`) — `lsp-server/internal/rules/`
+- **7 diagnostic rules** — see `lsp-server/internal/rules/`:
+  - `policy-name-length`, `policy-name-pattern`,
+    `policy-name-template` (strict/resolve/both), `hub-forbidden-functions`,
+    `lookup-default-dict` — name / forbidden-function / lookup checks.
+  - `unclosed-delimiters` (default on, error) — state-machine pairing
+    of helm `{{`/`}}` plus orphan detection across direct hub
+    (`{{hub`/`hub}}`), hub-escape (`{{ "{{hub" }}` / `{{ "hub}}" }}`)
+    and managed-escape (`{{ "{{" }}` / `{{ "}}" }}`) markers.
+  - `unknown-function` (default off, warning) — flags identifiers
+    not in the union of helm/hub/managed/sprig/Go-builtins; opt-in
+    because catalog sprig coverage is a subset.
 - **Completion, hover, signature help** — layer-aware (helm/hub/managed)
   reading from ACM 2.15 catalog plus Go-builtins, sprig, helm function
   lists. `.Values.*` drilling into chart `values.yaml` with overlay
@@ -28,18 +36,30 @@ no `Co-Authored-By` trailer.
   `.Template` Helm globals served in helm context.
 - **Semantic tokens** — full Go-template tokenizer for keywords,
   strings, numbers, operators, variables, properties, functions, ACM-
-  distinct identifiers, exported context values. Works in helm
-  expressions, hub spans (direct + double-split escaped), and
-  managed spans (`{{ "{{" }} ... {{ "}}" }}`).
+  distinct identifiers, exported context values. Handles three layers
+  of nesting cleanly:
+  - Helm-level `{{ ... }}` expressions, including string literals that
+    contain rendered helm expressions (the helm expression's bytes
+    skip-through the surrounding string scan, so `"{{ $x }}"` emits
+    one tString covering the whole literal with the helm expression's
+    own classification overlaid).
+  - Hub spans (direct `{{hub … hub}}` body + escape-form body
+    between `{{ "{{hub" }}` and `{{ "hub}}" }}`).
+  - Managed spans (`{{ "{{" }} ... {{ "}}" }}`).
+  - `hub` and the inner `{{`/`}}` of escape forms are tagged with the
+    `defaultLibrary` modifier, surfaced as
+    `@lsp.typemod.keyword.defaultLibrary.<lang>` so colorschemes can
+    distinguish ACM-side markers from go-template control keywords.
 - **Treesitter queries** — yaml→gotmpl injection (the bracket-matching
   fix that was unreachable in the VSCode TextMate extension) plus
   highlight overlays for ACM identifiers in `helm` and `gotmpl`.
 - **Highlight links** — `lua/acm-ls/init.lua` registers
-  `@lsp.type.<type>[.<modifier>].<lang>` → `@variable`/`@function`/etc.
-  links so colorschemes that style the standard tree-sitter captures
-  give us colors automatically. Re-applied on `LspAttach` and
+  `@lsp.type.<type>.<lang>` and `@lsp.typemod.<type>.<modifier>.<lang>`
+  links pointing at standard tree-sitter captures so colorschemes give
+  us sensible colors out of the box. Re-applied on `LspAttach` and
   `ColorScheme` because Neovim's `vim.lsp.semantic_tokens` registers
-  competing default-true links at attach time.
+  competing default-true links at attach time. Users override per-group
+  via `setup{ highlights = { … } }`.
 
 ## Layout
 
@@ -54,7 +74,7 @@ nvim-acm/
 │       ├── parsedoc/              # YAML kind/name + LSP range
 │       ├── context/               # detector.go, hubspans.go, acmcontext.go
 │       ├── values/                # chartvalues, compose, templaterender, pathparser
-│       ├── rules/                 # 5 diagnostic rules
+│       ├── rules/                 # 7 diagnostic rules
 │       ├── providers/             # completion, hover, signaturehelp, semantictokens
 │       └── server/server.go       # glsp wiring
 ├── lua/acm-ls/                    # init.lua (setup), treesitter.lua (parser check)
@@ -116,6 +136,14 @@ Inside Neovim after a binary rebuild:
   new `acm-2.16.json` alongside, loader auto-discovers.
 - **gopls workspace warnings** when editing Go from a different repo —
   ignore them. Real check is `go build ./...` from `lsp-server/`.
+- **Settings prefix mismatch** (known bug) — the Lua client wraps
+  rule settings under `settings.acm.rules.<id>.*`, but rules read
+  via `Get(ctx.Settings, "rules.<id>.*", default)` — no `acm.` prefix.
+  As of writing, user-supplied rule overrides don't actually reach
+  the rules; defaults always win. Either strip the `acm` wrapper
+  server-side in `initialize` / `didChangeConfiguration` (cleanest)
+  or rewrite rule paths to start with `acm.rules.<id>.*`. Tracked
+  in `TODOS.md`.
 
 ## Pending / parked
 

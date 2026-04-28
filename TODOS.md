@@ -91,14 +91,20 @@ balancing `hub}}`. Emit on the dangling delimiter range.
 
 **Notes:**
 - Implemented in `lsp-server/internal/rules/unclosedDelimiters.go`.
-  Default-on with severity `error`. Two passes: balanced `{{`/`}}`
-  scan, then a greedy pair-up of `{{hub` / `hub}}` markers via
-  `context.FindHelmStringRanges` to skip matches inside string
-  literals (so escape-form `{{ "{{hub" }}` doesn't appear orphaned).
+  Default-on with severity `error`. Four state-machine passes:
+  - Helm-level `{{`/`}}` (with stack-style pairing — the original
+    greedy "next `}}` after this `{{`" approach silently stole
+    closers from later balanced expressions to satisfy earlier
+    unclosed `{{`, hiding imbalance during live editing).
+  - Direct hub markers `{{hub`/`hub}}`, with string-range filtering
+    via `context.FindHelmStringRanges` so the inner `{{hub` of an
+    escape-form pattern doesn't false-match.
+  - Hub-escape pair `{{ "{{hub" }}` / `{{ "hub}}" }}`.
+  - Managed-escape pair `{{ "{{" }}` / `{{ "}}" }}`.
 - Settings: `rules.unclosed-delimiters.enabled`, `.severity`.
 - Multi-line `{{-` / `-}}` works because the close-finder doesn't
-  care about newlines. Tested across direct, escape-form, and stray-
-  closer cases.
+  care about newlines. Tested across direct, escape-form, partial-
+  typing of escape patterns, and stray-closer cases.
 
 ---
 
@@ -224,6 +230,46 @@ only show up against real values.
 
 ---
 
+## Bugs
+
+### Settings prefix mismatch — user rule overrides don't reach rules
+
+**Status:** proposed (high priority — silent functional bug)
+**Difficulty:** low
+
+**Symptom:** The Lua client `setup{ settings = { acm = { rules = {…} } } }`
+wraps rule overrides under `acm.rules.<id>.*`, and ships those as
+`initializationOptions`. The server stores the entire init-options map
+verbatim into `s.settings`. Each rule then reads via
+`Get(ctx.Settings, "rules.<rule-id>.*", default)` — no `acm.` prefix —
+so the lookups always miss and the default wins. The user can change
+their `init.lua` config to whatever they want and nothing changes.
+
+The smoketest in `lsp-server/cmd/smoketest/main.go` mirrors the same
+shape (`"acm": {…rules…}`), so it's also exercising defaults rather
+than the user-supplied values. Tests pass because defaults match.
+
+**Fix options:**
+1. Strip the `acm` wrapper on the server side in `initialize` and
+   `didChangeConfiguration` — when init-options is `{ acm: X }` (and
+   only an `acm` key), set `s.settings = X`. Cleanest, doesn't
+   require touching every rule.
+2. Rewrite rule paths to read `acm.rules.<id>.*`. More mechanical
+   change, easier to spot in code review.
+
+Recommend (1).
+
+**Open questions:**
+- Should we keep the wrapper present so VSCode-extension shape
+  parity is preserved? VSCode users send `acm.*` via
+  `workspace/configuration` too — so the wrapper is consistent
+  across both clients. Strip it server-side, leave the client shape
+  alone.
+
+**Notes:**
+
+---
+
 ## Adjacent ideas
 
 These aren't diagnostics but came up in passing — listed so they don't
@@ -298,11 +344,59 @@ When picking one of these up, the existing flow is:
 1. Create `lsp-server/internal/rules/<name>.go` modeled after the
    existing rules. Implement `ID() string` and `Run(ctx Context) []protocol.Diagnostic`.
 2. Read settings via `Get` / `GetInt` / `GetStringSlice` against
-   `rules.<rule-id>.*` paths — they auto-flow from the user's
-   `init.lua` `settings.acm.rules.<rule-id>` tree without further
-   wiring.
+   `rules.<rule-id>.*` paths — *intended* to auto-flow from the
+   user's `init.lua` `settings.acm.rules.<rule-id>` tree, but see
+   the **Settings prefix mismatch** bug above: the wrapper isn't
+   stripped on the server side yet, so user-supplied overrides
+   currently reach defaults only. Fix that first if your rule
+   needs runtime configuration to be respected.
 3. Register in `internal/server/server.go`'s rule list.
 4. Add a unit test if the logic is non-trivial; the existing rules
    don't all have tests, but ones that touch `values/` or `context/`
    should.
 5. Run `go test ./...` and the smoketest before opening a PR.
+
+---
+
+## Done — landed enhancements
+
+For reference, things that aren't really "TODOs" but shipped as
+part of recent work:
+
+- **Escape-pair pass extensions** — `unclosed-delimiters` now
+  pairs `{{ "{{hub" }}` / `{{ "hub}}" }}` (hub-escape) and
+  `{{ "{{" }}` / `{{ "}}" }}` (managed-escape) in addition to the
+  helm-level `{{`/`}}` and direct hub markers.
+- **State-machine pairing** for helm `{{`/`}}` — replaced the
+  greedy-pair scanner that hid imbalance during live editing.
+- **`defaultLibrary` modifier on ACM-side keywords** — the `hub`
+  identifier and the inner `{{`/`}}` runs of escape patterns now
+  emit with the modifier set, so colorschemes can target
+  `@lsp.typemod.keyword.defaultLibrary.<lang>` distinctly from
+  go-template control keywords.
+- **Highlight-link group naming fix** — Neovim emits
+  `@lsp.typemod.<type>.<modifier>.<lang>`, not
+  `@lsp.type.<type>.<modifier>.<lang>`. Default-link table updated
+  to the correct shape; previous entries for `function.defaultLibrary`
+  and `property.readonly` had been dead links.
+- **`highlights` config option** — per-group overrides accepted in
+  `setup{}` so users can recolor any LSP semantic-token group
+  without forking the link table.
+- **String state across embedded helm in body** — hub/managed-span
+  body tokenization now skips helm-expression byte ranges as
+  transparent (rather than splitting the body into gaps), so a
+  string `"{{ $x }}"` inside the body emits as one tString
+  covering the whole literal. Previously `.rendered-config` inside
+  `".rendered-config"` mis-classified as a tProperty because the
+  surrounding string got split by an embedded helm expression.
+- **`appendStringInnerDelims` skip-aware** — when a string's inner
+  `{{`/`}}` is the start/end of a real helm expression, no
+  `keyword.defaultLibrary` token is emitted (the helm expression
+  owns those bytes). Escape-form `"{{hub-"` etc. still tag
+  correctly because their inner `{{` is a literal byte inside the
+  surrounding helm expression's string, not a separate helm
+  expression.
+- **Rename autoshift → acm-ls** — Lua module, plugin file, user
+  commands (`AcmRestart`/`Stop`/`Status`), binary name, Go module
+  path, env var, settings root key, diagnostic source, vim global,
+  treesitter query header comments. Commit `064757c`.

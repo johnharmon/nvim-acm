@@ -13,7 +13,7 @@ Neovim plugin can ship and version independently.
 
 | Feature | LSP method | Implementation |
 |---|---|---|
-| Diagnostics (5 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
+| Diagnostics (7 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
 | Completion | `textDocument/completion` | `lsp-server/internal/providers/completion.go` |
 | Hover | `textDocument/hover` | `lsp-server/internal/providers/hover.go` |
 | Signature help | `textDocument/signatureHelp` | `lsp-server/internal/providers/signaturehelp.go` |
@@ -21,9 +21,37 @@ Neovim plugin can ship and version independently.
 | Token-level highlighting inside YAML block scalars | treesitter injection | `plugin/queries/yaml/injections.scm` |
 | ACM-identifier highlighting | treesitter overlay | `plugin/queries/{helm,gotmpl}/highlights.scm` |
 
-The five diagnostic rules: `policy-name-length`, `policy-name-pattern`,
-`policy-name-template` (strict/resolve/both modes),
-`hub-forbidden-functions`, `lookup-default-dict`.
+### Diagnostic rules
+
+| Rule | Default | Severity | What it catches |
+|---|---|---|---|
+| `policy-name-length` | on | warning | Policy / PlacementBinding / etc. with `metadata.name` longer than the configured maximum (default 63). |
+| `policy-name-pattern` | off | warning | Names that don't match a configurable regex. |
+| `policy-name-template` | on | warning | Names containing template expressions; `mode = strict` flags any template, `resolve` renders against `values.yaml` and checks the result, `both` runs both checks. |
+| `hub-forbidden-functions` | on | error | Use of functions that aren't valid in hub-template context (`trimPrefix`, `trimSuffix`, …). |
+| `lookup-default-dict` | on | warning | `lookup` calls without a `\| default dict ""` fallback that would crash at policy-eval time when the resource is missing. |
+| `unclosed-delimiters` | on | error | Unbalanced `{{` / `}}`, plus orphan markers across four layers: helm-level, direct hub `{{hub`/`hub}}`, hub-escape `{{ "{{hub" }}` / `{{ "hub}}" }}`, and managed-escape `{{ "{{" }}` / `{{ "}}" }}`. |
+| `unknown-function` | off | warning | Function-call identifiers in any layer that aren't in the loaded catalog (helm + hub + managed + sprig + Go-builtins). Default off because the shipped sprig coverage is intentionally a subset; opt in once your chart's sprig usage is in the catalog or extend with `rules.unknown-function.allowedFunctions`. |
+
+### Semantic highlighting layers
+
+The semantic-token classifier handles the three levels of go-template
+nesting that ACM templates produce:
+
+- **Helm-level expressions** — `{{ ... }}` at the chart layer, including
+  string literals that contain rendered helm expressions
+  (`"{{ $polNs }}"` is one tString covering the whole literal; the inner
+  helm expression's bytes get their own classification overlaid).
+- **Direct hub spans** — `{{hub fn args hub}}` body, with `hub` tagged as
+  an ACM-side keyword (`@lsp.typemod.keyword.defaultLibrary.<lang>`)
+  separate from go-template control keywords like `if` / `range`.
+- **Escape forms** — `{{ "{{hub" }} … {{ "hub}}" }}` (hub-escape) and
+  `{{ "{{" }} … {{ "}}" }}` (managed-escape). The runtime delimiters
+  inside the string literals (`{{` / `}}` / `{{-` / `-}}`) are tagged as
+  ACM-side keywords. Helm expressions embedded inside the body of
+  either escape form (e.g. `"{{ $polNs }}"` inside a hub-escape) are
+  correctly recognized as helm-level — their bytes don't fight with
+  ACM-side classification.
 
 ## Install
 
@@ -69,7 +97,7 @@ nvim-acm/                          # standard nvim plugin layout
 │       │                          #   hub-span finder, ACM-context check
 │       ├── values/                # values.yaml parser, overlays merge,
 │       │                          #   .Values.* path parser, mini renderer
-│       ├── rules/                 # 5 diagnostic rule implementations
+│       ├── rules/                 # 7 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
 ├── lua/acm-ls/
@@ -128,8 +156,38 @@ its own copy and is updated separately.
 | `filetypes` | `{ "yaml", "helm" }` | Filetypes to attach the LSP to. |
 | `root_markers` | `{ "Chart.yaml", ".git", "policies" }` | Walked upward; first match wins. |
 | `semantic_tokens` | `true` | Calls `vim.lsp.semantic_tokens.start` on attach (Neovim 0.10+). |
+| `apply_default_highlights` | `true` | Register the per-language `@lsp.type.*.<lang>` and `@lsp.typemod.*.<lang>` link table. Set false to leave highlight setup entirely to your colorscheme. |
+| `highlights` | `{}` | Per-group overrides — keys are LSP semantic-token groups (`@lsp.typemod.keyword.defaultLibrary.helm`, `@lsp.type.variable.yaml`, …), values are any spec accepted by `nvim_set_hl` (`{ fg = "…" }`, `{ link = "…" }`, …). Replaces the default link entirely; re-applied on `ColorScheme` and `LspAttach` so theme changes don't wipe it. |
 | `warn_missing_parsers` | `true` | Notify if `gotmpl`/`yaml` treesitter parsers aren't installed. |
 | `settings` | see `init.lua` | Forwarded to the server via `initializationOptions`. |
+
+### Color overrides
+
+To distinguish ACM-side markers from go-template keywords in your
+colorscheme, target the semantic-token groups directly:
+
+```lua
+require("acm-ls").setup{
+  highlights = {
+    -- ACM `hub` keyword and the inner `{{`/`}}` of escape patterns
+    ["@lsp.typemod.keyword.defaultLibrary.helm"] = { fg = "#558b2f", bold = true },
+    ["@lsp.typemod.keyword.defaultLibrary.yaml"] = { fg = "#558b2f", bold = true },
+    -- ACM-distinct hub/managed functions (fromSecret, etc.)
+    ["@lsp.typemod.function.defaultLibrary.helm"] = { fg = "#7aa2f7", bold = true },
+    ["@lsp.typemod.function.defaultLibrary.yaml"] = { fg = "#7aa2f7", bold = true },
+    -- ACM exported context values (.ManagedClusterName, etc.)
+    ["@lsp.typemod.property.readonly.helm"]      = { fg = "#f7768e" },
+    ["@lsp.typemod.property.readonly.yaml"]      = { fg = "#f7768e" },
+    -- Plain template variables ($var)
+    ["@lsp.type.variable.helm"]                  = { fg = "#ff9e64" },
+    ["@lsp.type.variable.yaml"]                  = { fg = "#ff9e64" },
+  },
+}
+```
+
+`@lsp.typemod.<type>.<modifier>.<lang>` is Neovim's combined
+type+modifier group — the most specific in the per-token chain. Plain
+`@lsp.type.<type>.<lang>` covers the no-modifier case.
 
 The `settings.acm.*` tree mirrors the VSCode extension's
 `package.json` configuration schema, including all rule knobs:
@@ -145,6 +203,8 @@ settings = {
       ["policy-name-template"]    = { enabled = true, mode = "strict" },  -- or "resolve"/"both"
       ["hub-forbidden-functions"] = { enabled = true, severity = "error" },
       ["lookup-default-dict"]     = { enabled = true, severity = "warning" },
+      ["unclosed-delimiters"]     = { enabled = true, severity = "error" },
+      ["unknown-function"]        = { enabled = false, severity = "warning", allowedFunctions = {} },
     },
     values = {
       overlayFiles = {},  -- workspace-relative paths layered on top of chart values
@@ -292,7 +352,11 @@ go test ./...
 Currently exercised:
 - `context/`: layer detector + hub-span finder
 - `values/`: path parser, template renderer, compose
-- `providers/`: semantic-token vocabulary + emission
+- `providers/`: semantic-token vocabulary + emission, including
+  nested-helm-inside-hub-body and escape-form inner-delimiter cases
+- `rules/`: `unclosed-delimiters` and `unknown-function` cover their
+  positive and negative cases (balanced docs, partial typing,
+  escape-form orphans, allowedFunctions extension, dedupe)
 
 ### LSP integration smoke test
 
