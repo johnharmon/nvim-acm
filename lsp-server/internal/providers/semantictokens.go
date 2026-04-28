@@ -229,11 +229,14 @@ func appendStringInnerDelims(tokens []rawToken, inner string, innerStart, quoteS
 	if contentEnd <= contentStart {
 		return tokens
 	}
+	// Same defaultLibrary modifier as appendHubKeywords: these are ACM-side
+	// delimiter runs (the `{{`/`}}` that helm renders into runtime markers
+	// for the managed cluster), not go-template control keywords.
 	if n := openDelimRun(inner, contentStart, contentEnd); n > 0 {
-		tokens = append(tokens, rawToken{offset: innerStart + contentStart, length: n, tokenType: tKeyword})
+		tokens = append(tokens, rawToken{offset: innerStart + contentStart, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
 	}
 	if n := closeDelimRun(inner, contentStart, contentEnd); n > 0 {
-		tokens = append(tokens, rawToken{offset: innerStart + contentEnd - n, length: n, tokenType: tKeyword})
+		tokens = append(tokens, rawToken{offset: innerStart + contentEnd - n, length: n, tokenType: tKeyword, modifiers: mDefaultLibrary})
 	}
 	return tokens
 }
@@ -263,7 +266,10 @@ func appendHubKeywords(tokens []rawToken, text string) []rawToken {
 		for _, m := range p.re.FindAllStringSubmatchIndex(text, -1) {
 			off := m[2*p.captureIdx]
 			length := m[2*p.captureIdx+1] - off
-			tokens = append(tokens, rawToken{offset: off, length: length, tokenType: tKeyword})
+			// `defaultLibrary` modifier marks this as an ACM-side keyword
+			// (not a go-template keyword like `if`/`range`), so colorschemes
+			// can target @lsp.type.keyword.defaultLibrary.* separately.
+			tokens = append(tokens, rawToken{offset: off, length: length, tokenType: tKeyword, modifiers: mDefaultLibrary})
 		}
 	}
 	return tokens

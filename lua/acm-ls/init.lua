@@ -164,6 +164,12 @@ local default_links = {
   ["@lsp.type.function.defaultLibrary.helm"]           = "@function.builtin",
   ["@lsp.type.keyword.yaml"]                           = "@keyword",
   ["@lsp.type.keyword.helm"]                           = "@keyword",
+  -- ACM-side keyword markers (the `hub` identifier and the inner `{{`/`}}`
+  -- of escape-form strings). Same TYPE as go-template keywords but tagged
+  -- with the `defaultLibrary` modifier so colorschemes / user overrides can
+  -- give them a distinct color from `if`/`range`/`else`/etc.
+  ["@lsp.type.keyword.defaultLibrary.yaml"]            = "@keyword.directive",
+  ["@lsp.type.keyword.defaultLibrary.helm"]            = "@keyword.directive",
   ["@lsp.type.string.yaml"]                            = "@string",
   ["@lsp.type.string.helm"]                            = "@string",
   ["@lsp.type.number.yaml"]                            = "@number",
