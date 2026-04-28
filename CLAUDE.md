@@ -18,7 +18,7 @@ no `Co-Authored-By` trailer.
 
 ## What's already done
 
-- **7 diagnostic rules** — see `lsp-server/internal/rules/`:
+- **8 diagnostic rules** — see `lsp-server/internal/rules/`:
   - `policy-name-length`, `policy-name-pattern`,
     `policy-name-template` (strict/resolve/both), `hub-forbidden-functions`,
     `lookup-default-dict` — name / forbidden-function / lookup checks.
@@ -29,6 +29,13 @@ no `Co-Authored-By` trailer.
   - `unknown-function` (default off, warning) — flags identifiers
     not in the union of helm/hub/managed/sprig/Go-builtins; opt-in
     because catalog sprig coverage is a subset.
+  - `template-syntax` (default on, warning) — per-`object-templates-raw:`
+    block-scalar parse via `text/template/parse`; catches malformed
+    actions, control-flow nesting errors, bad pipelines. All catalog
+    functions plus `hub` registered as no-op stubs so the parser
+    accepts legitimate ACM calls and the direct hub form
+    `{{hub fn args hub}}` parses cleanly. Helm-level only —
+    no pre-render, no managed-rendered body validation.
 - **Completion, hover, signature help** — layer-aware (helm/hub/managed)
   reading from ACM 2.15 catalog plus Go-builtins, sprig, helm function
   lists. `.Values.*` drilling into chart `values.yaml` with overlay
@@ -74,7 +81,7 @@ nvim-acm/
 │       ├── parsedoc/              # YAML kind/name + LSP range
 │       ├── context/               # detector.go, hubspans.go, acmcontext.go
 │       ├── values/                # chartvalues, compose, templaterender, pathparser
-│       ├── rules/                 # 7 diagnostic rules
+│       ├── rules/                 # 8 diagnostic rules
 │       ├── providers/             # completion, hover, signaturehelp, semantictokens
 │       └── server/server.go       # glsp wiring
 ├── lua/acm-ls/                    # init.lua (setup), treesitter.lua (parser check)

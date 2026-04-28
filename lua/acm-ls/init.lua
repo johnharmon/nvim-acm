@@ -55,6 +55,11 @@ local default_config = {
         -- your chart's sprig usage is in the catalog, or extend via
         -- rules.unknown-function.allowedFunctions.
         ["unknown-function"] = { enabled = false, severity = "warning", allowedFunctions = {} },
+        -- Per-`object-templates-raw:` block-scalar parse via Go's
+        -- text/template/parse. Catches malformed actions, control-flow
+        -- nesting errors, bad pipelines, and similar syntax issues.
+        -- Doesn't validate variable paths or function arity.
+        ["template-syntax"] = { enabled = true, severity = "warning" },
       },
     },
   },

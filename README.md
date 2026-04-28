@@ -13,7 +13,7 @@ Neovim plugin can ship and version independently.
 
 | Feature | LSP method | Implementation |
 |---|---|---|
-| Diagnostics (7 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
+| Diagnostics (8 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
 | Completion | `textDocument/completion` | `lsp-server/internal/providers/completion.go` |
 | Hover | `textDocument/hover` | `lsp-server/internal/providers/hover.go` |
 | Signature help | `textDocument/signatureHelp` | `lsp-server/internal/providers/signaturehelp.go` |
@@ -32,6 +32,7 @@ Neovim plugin can ship and version independently.
 | `lookup-default-dict` | on | warning | `lookup` calls without a `\| default dict ""` fallback that would crash at policy-eval time when the resource is missing. |
 | `unclosed-delimiters` | on | error | Unbalanced `{{` / `}}`, plus orphan markers across four layers: helm-level, direct hub `{{hub`/`hub}}`, hub-escape `{{ "{{hub" }}` / `{{ "hub}}" }}`, and managed-escape `{{ "{{" }}` / `{{ "}}" }}`. |
 | `unknown-function` | off | warning | Function-call identifiers in any layer that aren't in the loaded catalog (helm + hub + managed + sprig + Go-builtins). Default off because the shipped sprig coverage is intentionally a subset; opt in once your chart's sprig usage is in the catalog or extend with `rules.unknown-function.allowedFunctions`. |
+| `template-syntax` | on | warning | Per-`object-templates-raw:` block-scalar Go-template parse via `text/template/parse` (the parser helm itself uses). Catches malformed actions, control-flow nesting errors, bad pipelines, mismatched parens. All catalog functions plus `hub` are registered as no-op stubs so legitimate ACM calls don't appear undefined. Doesn't validate variable paths (`.Values.x` is opaque) or function arity. Helm-level only — managed-side template body that emerges after rendering isn't separately parsed. |
 
 ### Semantic highlighting layers
 
@@ -97,7 +98,7 @@ nvim-acm/                          # standard nvim plugin layout
 │       │                          #   hub-span finder, ACM-context check
 │       ├── values/                # values.yaml parser, overlays merge,
 │       │                          #   .Values.* path parser, mini renderer
-│       ├── rules/                 # 7 diagnostic rule implementations
+│       ├── rules/                 # 8 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
 ├── lua/acm-ls/
@@ -205,6 +206,7 @@ settings = {
       ["lookup-default-dict"]     = { enabled = true, severity = "warning" },
       ["unclosed-delimiters"]     = { enabled = true, severity = "error" },
       ["unknown-function"]        = { enabled = false, severity = "warning", allowedFunctions = {} },
+      ["template-syntax"]         = { enabled = true, severity = "warning" },
     },
     values = {
       overlayFiles = {},  -- workspace-relative paths layered on top of chart values

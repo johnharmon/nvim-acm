@@ -62,6 +62,7 @@ func New(cfg Config) *Server {
 			rules.LookupDefaultDict,
 			rules.UnclosedDelimiters,
 			rules.NewUnknownFunction(loader),
+			rules.NewTemplateSyntax(loader),
 		},
 	}
 	h := &protocol.Handler{

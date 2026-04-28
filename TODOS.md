@@ -110,7 +110,7 @@ balancing `hub}}`. Emit on the dangling delimiter range.
 
 ### Full Go-template syntax errors
 
-**Status:** proposed
+**Status:** done (helm-level only — no managed-rendered body validation)
 **Difficulty:** medium
 
 **Approach:** Wrap stdlib `text/template/parse` (the parser helm itself
@@ -138,6 +138,165 @@ lookup against the original document.
   rule and let the simpler unknown-function/unclosed checks cover it.
 
 **Notes:**
+- Implemented in `lsp-server/internal/rules/templateSyntax.go`.
+  Per-`object-templates-raw:` block-scalar parse via
+  `text/template/parse`. Default-on, severity warning.
+- Stub FuncMap registers every helm/hub/managed/sprig/Go-builtin
+  function name from the resolved catalog plus `hub` itself. The
+  direct-form hub expression `{{hub fn args hub}}` then parses
+  cleanly — `hub` reads as a no-op function call with the trailing
+  `hub` as an identifier argument. Escape forms parse as ordinary
+  helm actions with string-literal arguments. Mixing direct-hub +
+  managed-escape + helm `{{ if }}` on a single line works because
+  the parser is layer-agnostic.
+- Block-scalar discovery uses regex-based line scanning: locate
+  `^(\s*)object-templates-raw:\s*\|[+-]?\d*\s*$`, then walk forward
+  while `indent > keyIndent` (blank lines included). Original
+  indentation is preserved when handing the body to the parser so
+  parse-error line numbers map directly back to document lines.
+- Position mapping: parser errors are formatted
+  `template: NAME:LINE: MSG`; line is body-relative. Diagnostic
+  document line = `block.contentLine + (parserLine - 1)`, clamped
+  to the last content line so EOF-style errors (where the parser
+  reports one line past the body) still land on a visible line.
+- Caveats: doesn't validate variable paths (`.Values.x` is
+  opaque); doesn't validate function arity (stubs accept anything);
+  doesn't validate the managed-rendered template body — that needs
+  pre-render and is explicitly skipped.
+- Phase A and Phase B (below) extend this to multi-layer
+  validation via render-chain.
+
+---
+
+### Phase A — layered syntax check across helm / hub / managed (render-chain)
+
+**Status:** in-progress
+**Difficulty:** medium
+
+**Approach:** Three-stage parse + `Execute` chain. Each stage uses
+the previous stage's rendered output as input.
+
+1. **Helm stage:** parse the document with standard `{{` / `}}`
+   delims and the helm/sprig/Go-builtin FuncMap, then `Execute`
+   against a values context built from the merged `values.yaml`
+   tree (existing `internal/values/` machinery — chart values
+   plus overlays). Stub functions return shape-preserving
+   placeholders: `hub` returns `{{hub <args> hub}}` so direct
+   form survives stage 1; string-typed catalog functions return
+   sentinel strings; functions whose return type would matter to
+   downstream layers (`fromConfigMap` etc.) return placeholder
+   values matching the declared catalog return type.
+2. **Hub stage:** parse the stage-1 output with custom delims
+   `{{hub` / `hub}}` and the hub FuncMap. Execute against a
+   stub hub-context (with `.ManagedClusterName` etc. defaulted).
+   Stage-1 output's escape-form patterns have already been
+   collapsed by helm rendering into direct hub form, so the
+   custom-delim parser sees them naturally. Hub stubs render
+   to sentinel values for stage 3.
+3. **Managed stage:** parse stage-2 output with standard
+   `{{` / `}}` delims and managed FuncMap. Surface any parse
+   errors as managed-layer diagnostics. No execution needed
+   unless we add a stage 4 (none planned).
+
+**Values-file integration (required, not optional):**
+The helm-stage `Execute` data context must be populated from
+the chart's merged values tree so accessing `.Values.someKey`
+during render returns a meaningful value rather than panicking
+on a missing field. Plumbing:
+- Use existing `valuesCache` (already in `server.Server`).
+- For each document, resolve the chart values + any user-
+  configured overlay files (existing `acm.values.overlayFiles`
+  setting; later, the session-scoped values-file chain TODO).
+- Build a `map[string]any` data context with `.Values` set to
+  the merged tree, `.Release`/`.Chart`/`.Files`/`.Capabilities`/
+  `.Template` populated with sentinel maps from `helm.json`
+  `contextValues`.
+- Wrap unknown-key accesses in a fallback that returns a
+  type-safe zero value (empty string / empty map / nil) so
+  Execute never panics on a missing field.
+
+**Position mapping across stages:**
+`Execute` writes to an `io.Writer` without telling you which
+parse-tree node produced which bytes. To translate a stage-3
+parse error back to a position in the *original* document, each
+stage must produce a source map: `outputByteRange → inputByteRange`.
+We can implement this by replacing the standard `text/template`
+Execute path with a custom walker that emits both bytes and
+source-map entries as it traverses each `parse.Tree`. Required
+for diagnostic positioning; ~2-3 days of careful work on its
+own.
+
+**Open questions:**
+- `lookup` (Kubernetes `lookup` from `lookupClusterClaim` etc.) —
+  return placeholder dict to keep render going. Don't actually
+  hit a cluster.
+- Helm's `range`/`with` over `.Values.list` — if the list is
+  empty (default), the inner block doesn't execute, so its
+  syntax errors are missed. Consider injecting a single-element
+  default list at strategic points.
+- Should we render the top-level chart manifests (incl. `Chart.yaml`
+  reading) or just stage 1 against the buffer text alone? Recommend
+  buffer-only for v1; full chart-aware mode later.
+- Per-rule severity — recommend `template-syntax.hub` and
+  `.managed` settings keys, defaulted to `warning`, so users
+  can disable individual layers if false-positives bite.
+
+**Notes:**
+- Phase A is the "no-crash render of all three layers" baseline.
+  Sets up infrastructure (data context, stubs, Execute path,
+  source maps) that Phase B builds on.
+- Doesn't catch type mismatches across layers; that's Phase B.
+
+---
+
+### Phase B — type-flow validation across template layers
+
+**Status:** proposed (depends on Phase A)
+**Difficulty:** high
+
+**Approach:** Promote stub functions from "return interface{}" to
+typed signatures derived from the catalog's `params` and `returns`
+declarations. Use `reflect.MakeFunc` to construct callable stubs
+matching each declared signature. When `Execute` runs them with
+mismatched-typed arguments, Go's template runtime surfaces typed
+errors that we capture as diagnostics. Catches mistakes like
+"`fromConfigMap` returns string, you indexed it as a dict on the
+managed side".
+
+**Pieces:**
+1. Catalog → Go reflect.Type bridge. Map JSON-typed declarations
+   (`"string"`, `"dict"`, `"list"`, `"int"`, `"bool"`, etc.) to
+   actual Go types. Extend the catalog's type vocabulary if needed
+   (currently mostly strings).
+2. `reflect.MakeFunc` factory to build catalog-typed stubs.
+3. Variable type inference for `.Values.*` accesses — propagate
+   constraints backward from each call site. Without this, all
+   `.Values` accesses are `interface{}` and the type-mismatch
+   detection won't fire on user-data flows.
+4. Cross-stage type continuity. Stage 1's rendered output is
+   text; stage 2 sees it as text. To detect "stage 1 emitted a
+   dict-shaped JSON, stage 2 wanted parseable hub syntax", encode
+   per-function "rendered-output shape" rules (`fromConfigMap` →
+   text-string, `lookup` → dict-or-nil, `toJson` → JSON string).
+
+**Open questions:**
+- Catalog vocabulary — current type strings are documentation-
+  oriented (e.g. "string"). Phase B needs them machine-parseable.
+  Either extend the existing `type` field semantics or add a
+  parallel `goType` field.
+- Which subset of variable type inference is worth the
+  complexity — recommend only literal-derivable constraints
+  (`{{ index .Values.x "k" }}` → `.Values.x` must be map-shaped).
+- Severity — type errors should be `error`-severity by default
+  since they'll genuinely fail at policy-eval time.
+
+**Notes:**
+- Estimated 1-2 weeks on top of Phase A's foundation.
+- Significant ongoing maintenance: every catalog function needs a
+  signature, every new ACM version's catalog needs type review.
+- The user's motivating example: "you default to a dict here, but
+  the next layer expects a string so this causes issues" is exactly
+  what this phase is for.
 
 ---
 
