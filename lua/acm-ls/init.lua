@@ -59,7 +59,16 @@ local default_config = {
         -- text/template/parse. Catches malformed actions, control-flow
         -- nesting errors, bad pipelines, and similar syntax issues.
         -- Doesn't validate variable paths or function arity.
-        ["template-syntax"] = { enabled = true, severity = "warning" },
+        --
+        -- `layered = true` opts in to Phase A render-chain checking:
+        -- after the helm-level parse passes, run text/template Execute
+        -- against a chart-values data context, then parse the rendered
+        -- output with `{{hub`/`hub}}` delims. Catches hub-side syntax
+        -- errors that only show up after helm renders. Default off
+        -- because Execute can fail silently on chained-missing-values
+        -- (`.Values.foo.bar.baz` where `.foo` is undefined) until
+        -- Phase B's typed stubs add robust missing-keys handling.
+        ["template-syntax"] = { enabled = true, severity = "warning", layered = false },
       },
     },
   },

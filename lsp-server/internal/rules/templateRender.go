@@ -80,6 +80,30 @@ func buildHelmStubFuncs(c catalog.Resolved) template.FuncMap {
 	return out
 }
 
+// buildHubStubFuncs builds the FuncMap for stage 2 (hub parse). Includes
+// only functions that are valid in hub-template context: hub catalog
+// functions, the sprig subset, and Go-builtins. Helm-only functions
+// (`include`, `tpl`, etc.) and managed-only functions (`skipObject`)
+// are intentionally excluded so a hub-side template that uses them
+// would surface as a "function not defined" parse error — which is
+// what the user wants caught.
+func buildHubStubFuncs(c catalog.Resolved) map[string]any {
+	stub := func(args ...any) any { return nil }
+	out := map[string]any{}
+	add := func(fns []catalog.TemplateFunction) {
+		for _, f := range fns {
+			if _, exists := out[f.Name]; exists {
+				continue
+			}
+			out[f.Name] = stub
+		}
+	}
+	add(c.HubFunctions)
+	add(c.SprigFunctions)
+	add(c.GoBuiltins)
+	return out
+}
+
 // buildHelmDataContext composes the data the helm-stage Execute walks.
 // `.Values` comes from the merged chart-values + overlay tree (or an
 // empty map if none was found); `.Release`, `.Chart`, `.Files`,

@@ -170,7 +170,7 @@ lookup against the original document.
 
 ### Phase A — layered syntax check across helm / hub / managed (render-chain)
 
-**Status:** in-progress (A.1 landed: render infrastructure; A.2 next: stage 2 hub-parse on render output)
+**Status:** in-progress (A.1 + A.2 landed: render infrastructure + hub stage; A.3 next: managed stage)
 **Difficulty:** medium
 
 **Approach:** Three-stage parse + `Execute` chain. Each stage uses
@@ -256,10 +256,26 @@ own.
   through `templateSyntax.cache` ready for use. Tests cover the
   collapse, sentinel data context, and values-tree conversion.
   Not yet wired into the rule's diagnostic output — that's A.2.
-- **A.2 (next):** wire stage 2 hub-parse on stage 1's rendered
-  output, custom delims `{{hub` / `hub}}`, hub FuncMap. Position
-  mapping via line-based approximation initially.
-- **A.3:** stage 3 managed-parse (depends on A.2's source map).
+- **A.2 (landed):** stage 2 hub-parse on stage 1's rendered output
+  via `parse.Parse(name, rendered, "{{hub", "hub}}", hubFuncs)` —
+  custom multi-character delims work as-is in the stdlib parser.
+  Hub FuncMap excludes helm-only and managed-only functions so
+  cross-layer misuse surfaces as a "function not defined" parse
+  error. Gated behind `rules.template-syntax.layered = true`
+  (default off). Execute errors are silently swallowed and stage
+  2 is skipped for those blocks — necessary because chained
+  missing-key access (`.Values.foo.bar.baz`) panics text/template
+  with nil-pointer evaluation, not gracefully recoverable until
+  Phase B's typed stubs land. Position mapping is line-based
+  approximation: stage 2 line N → block content line N. Works
+  cleanly for escape patterns (single-line collapse); imprecise
+  for multi-line `{{ if }} … {{ end }}` blocks (A.4 fixes).
+- **A.3:** stage 3 managed-parse on stage 2's rendered output.
+  Stage 2 currently doesn't render — it only parses. To get to
+  stage 3, stage 2 needs an Execute step that returns hub-rendered
+  text with hub markers replaced by sentinel values. Then stage 3
+  parses with standard `{{`/`}}` delims to validate the managed
+  side. Same execute-error handling as stage 2.
 - **A.4:** proper byte-level source maps through Execute.
 
 The chained-missing-keys problem (`.Values.foo.bar.baz` where

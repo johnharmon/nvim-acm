@@ -43,52 +43,78 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 	resolved := r.resolver.Resolve(version, catalog.UserExtras{})
 
 	funcs := buildStubFuncMap(resolved)
+	layered := Get(ctx.Settings, "rules.template-syntax.layered", false)
+	hubFuncs := buildHubStubFuncs(resolved)
+
+	var valuesRoot *values.Node
+	if layered && r.cache != nil && ctx.FilePath != "" {
+		if root := values.FindChartRoot(ctx.FilePath); root != "" {
+			valuesRoot = r.cache.Get(root)
+		}
+	}
 
 	sev := severity.ToLSP()
 	code := protocol.IntegerOrString{Value: "template-syntax"}
 	source := "acm"
 
-	out := []protocol.Diagnostic{}
-	for _, span := range findObjectTemplatesRawBlocks(ctx.Text) {
-		body := ctx.Text[span.contentStart:span.contentEnd]
-		if _, err := parse.Parse("ot-raw", body, "{{", "}}", funcs); err != nil {
-			perr, ok := parseTemplateError(err.Error())
-			if !ok {
-				// Couldn't parse the position out of the error — surface it
-				// at the top of the block scalar instead of dropping it.
-				out = append(out, protocol.Diagnostic{
-					Range: protocol.Range{
-						Start: protocol.Position{Line: uint32(span.contentLine), Character: 0},
-						End:   protocol.Position{Line: uint32(span.contentLine), Character: 1},
-					},
-					Severity: &sev, Code: &code, Source: &source,
-					Message: "template parse error: " + err.Error(),
-				})
-				continue
-			}
-			absLine := span.contentLine + (perr.line - 1)
-			// Errors like "unexpected EOF" report a line one past the last
-			// body line. Clamp into the block so the diagnostic lands on a
-			// real content line where the user can see it.
-			lastLine := span.contentLine
-			if span.contentEnd > span.contentStart {
-				lastLine = lineOfOffset(ctx.Text, span.contentEnd-1)
-			}
-			if absLine > lastLine {
-				absLine = lastLine
-			}
-			lineLen := lineLengthAt(ctx.Text, absLine)
-			out = append(out, protocol.Diagnostic{
+	var diagnostics []protocol.Diagnostic
+	emit := func(span blockScalarSpan, msgPrefix, fullErr string) {
+		perr, ok := parseTemplateError(fullErr)
+		if !ok {
+			diagnostics = append(diagnostics, protocol.Diagnostic{
 				Range: protocol.Range{
-					Start: protocol.Position{Line: uint32(absLine), Character: 0},
-					End:   protocol.Position{Line: uint32(absLine), Character: uint32(lineLen)},
+					Start: protocol.Position{Line: uint32(span.contentLine), Character: 0},
+					End:   protocol.Position{Line: uint32(span.contentLine), Character: 1},
 				},
 				Severity: &sev, Code: &code, Source: &source,
-				Message: "template parse error: " + perr.msg,
+				Message: msgPrefix + ": " + fullErr,
 			})
+			return
+		}
+		absLine := span.contentLine + (perr.line - 1)
+		lastLine := span.contentLine
+		if span.contentEnd > span.contentStart {
+			lastLine = lineOfOffset(ctx.Text, span.contentEnd-1)
+		}
+		if absLine > lastLine {
+			absLine = lastLine
+		}
+		lineLen := lineLengthAt(ctx.Text, absLine)
+		diagnostics = append(diagnostics, protocol.Diagnostic{
+			Range: protocol.Range{
+				Start: protocol.Position{Line: uint32(absLine), Character: 0},
+				End:   protocol.Position{Line: uint32(absLine), Character: uint32(lineLen)},
+			},
+			Severity: &sev, Code: &code, Source: &source,
+			Message: msgPrefix + ": " + perr.msg,
+		})
+	}
+
+	for _, span := range findObjectTemplatesRawBlocks(ctx.Text) {
+		body := ctx.Text[span.contentStart:span.contentEnd]
+		// Stage 1 (helm): parse only.
+		if _, err := parse.Parse("ot-raw", body, "{{", "}}", funcs); err != nil {
+			emit(span, "template parse error", err.Error())
+			continue
+		}
+		// Stage 2 (hub): render stage 1, parse output with custom delims.
+		// Gated behind `rules.template-syntax.layered` because Execute
+		// can fail on chained-missing-keys (`.Values.foo.bar.baz`) until
+		// Phase B's typed stubs make that robust.
+		if !layered {
+			continue
+		}
+		rendered, _, execErr := renderHelmStage(body, valuesRoot, resolved)
+		if execErr != nil {
+			// Stage 1 didn't produce usable output — skip stage 2 silently.
+			// Phase B will surface execute errors as typed diagnostics.
+			continue
+		}
+		if _, err := parse.Parse("hub", rendered, "{{hub", "hub}}", hubFuncs); err != nil {
+			emit(span, "hub-template parse error", err.Error())
 		}
 	}
-	return out
+	return diagnostics
 }
 
 func buildStubFuncMap(c catalog.Resolved) map[string]any {

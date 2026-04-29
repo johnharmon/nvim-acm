@@ -5,7 +5,19 @@ import (
 	"testing"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/values"
 )
+
+func enabledTemplateSyntaxLayered() Settings {
+	return Settings{
+		"rules": map[string]any{
+			"template-syntax": map[string]any{
+				"enabled": true,
+				"layered": true,
+			},
+		},
+	}
+}
 
 func miniTemplateResolver() CatalogResolver {
 	fn := func(name string) catalog.TemplateFunction {
@@ -159,6 +171,77 @@ spec:
 	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxSettings()})
 	if len(diags) != 1 {
 		t.Fatalf("want 1 diagnostic from second block, got %d: %+v", len(diags), diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOff_StageTwoSkipped(t *testing.T) {
+	// Without layered enabled, stage 2 is skipped — even broken hub
+	// syntax in escape-form bodies stays silent.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{hub" }} fromConfigMap "ns" "name" "key" {{ "hub}}" }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxSettings()})
+	if len(diags) != 0 {
+		t.Errorf("layered off — should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOn_BalancedStageTwoNoDiag(t *testing.T) {
+	// Stage 2 parses the rendered output (`{{hub fromConfigMap … hub}}`)
+	// with `{{hub`/`hub}}` delims. Balanced direct hub form parses fine.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{hub" }} fromConfigMap "ns" "name" "key" {{ "hub}}" }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) != 0 {
+		t.Errorf("balanced stage-2 should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOn_BrokenHubSideCaught(t *testing.T) {
+	// `{{ "{{hub" }} ... bareCloseHub` — stage 1 renders to
+	// `{{hub fromConfigMap "ns" "name" "key"\n` (no `hub}}` closer at
+	// stage 2's level). Stage 2's custom-delim parser will report an
+	// unclosed `{{hub`.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{hub" }} fromConfigMap "ns" "name" "key"
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) == 0 {
+		t.Fatalf("expected hub-template parse error for unclosed `{{hub`")
+	}
+	foundHub := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "hub-template parse error") {
+			foundHub = true
+		}
+	}
+	if !foundHub {
+		t.Errorf("expected at least one diagnostic with `hub-template parse error` prefix, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOn_ChainedMissingValuesSkipsStageTwo(t *testing.T) {
+	// `.Values.foo.bar.baz` would normally panic Execute with
+	// nil-pointer on chained navigation. The stage-2 path swallows
+	// execute errors silently and skips stage 2 — so the user sees
+	// no spurious "hub parse error" for content that simply couldn't
+	// be rendered. Phase B will surface execute errors as typed
+	// diagnostics with proper handling.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ printf "%v" .Values.foo.bar.baz }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) != 0 {
+		t.Errorf("execute failure should silently skip stage 2; got: %+v", diags)
 	}
 }
 
