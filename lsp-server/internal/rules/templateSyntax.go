@@ -44,7 +44,8 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 
 	funcs := buildStubFuncMap(resolved)
 	layered := Get(ctx.Settings, "rules.template-syntax.layered", false)
-	hubFuncs := buildHubStubFuncs(resolved)
+	hubFuncs := map[string]any(buildHubStubFuncs(resolved))
+	managedFuncs := map[string]any(buildManagedStubFuncs(resolved))
 
 	var valuesRoot *values.Node
 	if layered && r.cache != nil && ctx.FilePath != "" {
@@ -112,6 +113,18 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		}
 		if _, err := parse.Parse("hub", rendered, "{{hub", "hub}}", hubFuncs); err != nil {
 			emit(span, "hub-template parse error", err.Error())
+			continue
+		}
+		// Stage 2 execute: produce post-hub text for stage 3 input.
+		hubData := buildHubDataContext(resolved)
+		stage2Out, _, hubExecErr := renderHubStage(rendered, hubData, resolved)
+		if hubExecErr != nil {
+			// Stage 2 didn't render usable output — skip stage 3 silently.
+			continue
+		}
+		// Stage 3 (managed): parse stage 2 output with standard delims.
+		if _, err := parse.Parse("managed", stage2Out, "{{", "}}", managedFuncs); err != nil {
+			emit(span, "managed-template parse error", err.Error())
 		}
 	}
 	return diagnostics

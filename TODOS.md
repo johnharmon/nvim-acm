@@ -170,7 +170,7 @@ lookup against the original document.
 
 ### Phase A — layered syntax check across helm / hub / managed (render-chain)
 
-**Status:** in-progress (A.1 + A.2 landed: render infrastructure + hub stage; A.3 next: managed stage)
+**Status:** in-progress (A.1 + A.2 + A.3 landed: full three-layer parse via render-chain; A.4 next: byte-level source maps)
 **Difficulty:** medium
 
 **Approach:** Three-stage parse + `Execute` chain. Each stage uses
@@ -270,12 +270,18 @@ own.
   approximation: stage 2 line N → block content line N. Works
   cleanly for escape patterns (single-line collapse); imprecise
   for multi-line `{{ if }} … {{ end }}` blocks (A.4 fixes).
-- **A.3:** stage 3 managed-parse on stage 2's rendered output.
-  Stage 2 currently doesn't render — it only parses. To get to
-  stage 3, stage 2 needs an Execute step that returns hub-rendered
-  text with hub markers replaced by sentinel values. Then stage 3
-  parses with standard `{{`/`}}` delims to validate the managed
-  side. Same execute-error handling as stage 2.
+- **A.3 (landed):** stage 3 managed-parse on stage 2's rendered
+  output. `renderHubStage` (new) parses with `{{hub`/`hub}}` delims
+  via `text/template`'s `.Delims()` API and Executes against a
+  hub-side data context built from `HubExportedValues`. The output
+  has hub markers replaced with stub return values; stage 3 parses
+  it with standard `{{`/`}}` delims and a managed-only FuncMap
+  (helm-only and hub-only functions excluded so cross-layer misuse
+  surfaces). Diagnostic prefix: `managed-template parse error: …`.
+  Tests cover broken managed-escape (caught), balanced managed-
+  escape (no diagnostic), and a full three-layer stack with
+  helm `{{ if }}{{ end }}`, hub-escape, and managed-escape on
+  separate lines (no diagnostic).
 - **A.4:** proper byte-level source maps through Execute.
 
 The chained-missing-keys problem (`.Values.foo.bar.baz` where

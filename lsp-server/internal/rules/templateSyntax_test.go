@@ -245,6 +245,65 @@ func TestTemplateSyntax_LayeredOn_ChainedMissingValuesSkipsStageTwo(t *testing.T
 	}
 }
 
+func TestTemplateSyntax_LayeredOn_BrokenManagedSideCaught(t *testing.T) {
+	// Managed-escape pair in source: helm renders to `{{ skipObject` (no
+	// closing `}}` because the closer escape was deleted). Stage 1 helm
+	// renders the opener escape to literal `{{`. Stage 2 (hub) doesn't
+	// see hub markers, parses cleanly. Stage 2 executes with no hub
+	// markers so output equals input. Stage 3 (managed) parses with
+	// standard delims and reports unclosed `{{`.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{" }} skipObject
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) == 0 {
+		t.Fatalf("expected managed-template parse error for unclosed runtime `{{`")
+	}
+	foundManaged := false
+	for _, d := range diags {
+		if strings.Contains(d.Message, "managed-template parse error") {
+			foundManaged = true
+		}
+	}
+	if !foundManaged {
+		t.Errorf("expected at least one diagnostic with `managed-template parse error` prefix, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOn_BalancedManagedEscapeNoDiag(t *testing.T) {
+	// Balanced managed-escape pair: helm renders to `{{ skipObject }}`,
+	// stage 3 parses cleanly (skipObject is a managed-only function in
+	// the catalog, registered as a stub).
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{" }} skipObject {{ "}}" }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) != 0 {
+		t.Errorf("balanced managed-escape should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_LayeredOn_FullThreeLayerStack(t *testing.T) {
+	// All three layers in one block: helm `{{ if }}{{ end }}`, hub
+	// escape with hub-side body, managed escape with managed-side body.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ if eq "x" "y" }}
+    hub-side: '{{ "{{hub" }} fromConfigMap "ns" "n" "k" {{ "hub}}" }}'
+    managed-side: '{{ "{{" }} skipObject {{ "}}" }}'
+    {{ end }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) != 0 {
+		t.Errorf("balanced full-stack template should produce no diagnostics, got: %+v", diags)
+	}
+}
+
 func TestFindObjectTemplatesRawBlocks_Indent(t *testing.T) {
 	text := `spec:
   configurationPolicy:

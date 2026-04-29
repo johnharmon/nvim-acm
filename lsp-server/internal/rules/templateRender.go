@@ -87,9 +87,9 @@ func buildHelmStubFuncs(c catalog.Resolved) template.FuncMap {
 // are intentionally excluded so a hub-side template that uses them
 // would surface as a "function not defined" parse error — which is
 // what the user wants caught.
-func buildHubStubFuncs(c catalog.Resolved) map[string]any {
-	stub := func(args ...any) any { return nil }
-	out := map[string]any{}
+func buildHubStubFuncs(c catalog.Resolved) template.FuncMap {
+	stub := func(args ...any) (string, error) { return "", nil }
+	out := template.FuncMap{}
 	add := func(fns []catalog.TemplateFunction) {
 		for _, f := range fns {
 			if _, exists := out[f.Name]; exists {
@@ -102,6 +102,79 @@ func buildHubStubFuncs(c catalog.Resolved) map[string]any {
 	add(c.SprigFunctions)
 	add(c.GoBuiltins)
 	return out
+}
+
+// buildManagedStubFuncs builds the FuncMap for stage 3 (managed parse).
+// Includes managed catalog functions, sprig, and Go-builtins. Helm-only
+// and hub-only functions are excluded — using them on the managed side
+// is a real bug that should surface as "function not defined".
+func buildManagedStubFuncs(c catalog.Resolved) template.FuncMap {
+	stub := func(args ...any) (string, error) { return "", nil }
+	out := template.FuncMap{}
+	add := func(fns []catalog.TemplateFunction) {
+		for _, f := range fns {
+			if _, exists := out[f.Name]; exists {
+				continue
+			}
+			out[f.Name] = stub
+		}
+	}
+	add(c.ManagedFunctions)
+	add(c.SprigFunctions)
+	add(c.GoBuiltins)
+	return out
+}
+
+// buildHubDataContext composes the data context for stage 2 Execute.
+// `.ManagedClusterName`, `.ManagedClusterLabels`, `.PolicyMetadata`,
+// and other hub-exported values come from the catalog's
+// `HubExportedValues` declarations, populated with sentinel values
+// matching each declared type.
+func buildHubDataContext(c catalog.Resolved) map[string]any {
+	ctx := map[string]any{}
+	for _, v := range c.HubExportedValues {
+		segments := strings.Split(strings.TrimPrefix(v.Name, "."), ".")
+		if len(segments) == 0 {
+			continue
+		}
+		if len(segments) == 1 {
+			ctx[segments[0]] = sentinelForType(v.Type)
+			continue
+		}
+		top := segments[0]
+		if _, ok := ctx[top]; !ok {
+			ctx[top] = map[string]any{}
+		}
+		m, ok := ctx[top].(map[string]any)
+		if !ok {
+			continue
+		}
+		setNested(m, segments[1:], sentinelForType(v.Type))
+	}
+	return ctx
+}
+
+// renderHubStage parses `text` (stage 1's rendered output) with custom
+// `{{hub` / `hub}}` delimiters and Executes it against a hub-side data
+// context. Stub functions return "". Output is the post-hub view of
+// the document, suitable as input for stage 3 (managed-side parse).
+//
+// Same parseErr/execErr semantics as renderHelmStage.
+func renderHubStage(text string, dataCtx map[string]any, resolved catalog.Resolved) (rendered string, parseErr, execErr error) {
+	funcs := buildHubStubFuncs(resolved)
+	tmpl, err := template.New("hub").
+		Delims("{{hub", "hub}}").
+		Funcs(funcs).
+		Option("missingkey=zero").
+		Parse(text)
+	if err != nil {
+		return "", err, nil
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, dataCtx); err != nil {
+		return buf.String(), nil, err
+	}
+	return buf.String(), nil, nil
 }
 
 // buildHelmDataContext composes the data the helm-stage Execute walks.
