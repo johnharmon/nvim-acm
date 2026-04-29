@@ -304,6 +304,32 @@ func TestTemplateSyntax_LayeredOn_FullThreeLayerStack(t *testing.T) {
 	}
 }
 
+func TestTemplateSyntax_LayeredOn_SubstringMapsToOriginalLine(t *testing.T) {
+	// The unclosed `{{hub` is on the THIRD content line of the block.
+	// After helm renders, the escape opener `{{ "{{hub" }}` collapses
+	// to `{{hub` on the same line — so substring-matching the rendered
+	// line back to the body should land on the right line in the
+	// document (line index 4 — `spec:` at 0, `object-templates-raw:` at 1,
+	// `data:` at 2, `key1: value` at 3, `bad: '{{ "{{hub" }} fn args' at 4`).
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    data:
+      key1: value
+      bad: '{{ "{{hub" }} fromConfigMap "ns" "n" "k"'
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxLayered()})
+	if len(diags) == 0 {
+		t.Fatalf("expected hub-template parse error")
+	}
+	if diags[0].Range.Start.Line != 4 {
+		t.Errorf("expected diagnostic on line 4 (the line with the unclosed escape), got line %d", diags[0].Range.Start.Line)
+	}
+	if !strings.Contains(diags[0].Message, "rendered:") {
+		t.Errorf("expected message to include rendered context, got: %q", diags[0].Message)
+	}
+}
+
 func TestFindObjectTemplatesRawBlocks_Indent(t *testing.T) {
 	text := `spec:
   configurationPolicy:

@@ -170,7 +170,7 @@ lookup against the original document.
 
 ### Phase A — layered syntax check across helm / hub / managed (render-chain)
 
-**Status:** in-progress (A.1 + A.2 + A.3 landed: full three-layer parse via render-chain; A.4 next: byte-level source maps)
+**Status:** done (A.1–A.4 landed; default off pending Phase B's typed-stub robustness for missing-keys)
 **Difficulty:** medium
 
 **Approach:** Three-stage parse + `Execute` chain. Each stage uses
@@ -282,7 +282,22 @@ own.
   escape (no diagnostic), and a full three-layer stack with
   helm `{{ if }}{{ end }}`, hub-escape, and managed-escape on
   separate lines (no diagnostic).
-- **A.4:** proper byte-level source maps through Execute.
+- **A.4 (landed):** position mapping via substring match. When stage
+  2 or stage 3 reports a parse error at line N of its rendered input,
+  `mapErrLineToDocument` extracts that rendered line's text and walks
+  the original block-scalar body looking for a line whose trimmed
+  content contains (or is contained by) it. Match → use the original
+  body's line index. No match → fall back to arithmetic
+  `block.contentLine + (parserLine - 1)` (which is correct when
+  helm/hub stages preserved newlines 1:1 — the case for escape
+  patterns). Diagnostic message also includes the rendered line text
+  (`… | rendered: <text>`) so users can verify position even when the
+  match heuristic misses. Full byte-level source maps through
+  text/template's Execute would require re-implementing Execute as
+  a tree walker (the parser's Position info is per-AST-node, but
+  Execute writes to an io.Writer without reporting which node
+  produced which bytes); deferred unless A.4's heuristic proves
+  insufficient in practice.
 
 The chained-missing-keys problem (`.Values.foo.bar.baz` where
 `.Values.foo` is unset → nil-pointer evaluation panic from text/

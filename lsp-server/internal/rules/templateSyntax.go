@@ -2,6 +2,7 @@ package rules
 
 import (
 	"regexp"
+	"strings"
 	"text/template/parse"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
@@ -59,7 +60,15 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 	source := "acm"
 
 	var diagnostics []protocol.Diagnostic
-	emit := func(span blockScalarSpan, msgPrefix, fullErr string) {
+	// emit produces a diagnostic for a parse error reported at line N
+	// of `renderedSrc`. When `renderedSrc` is empty (stage 1, no render
+	// step), N is treated as a body line directly. Otherwise the error
+	// line is read from the rendered output and matched back to the
+	// original block-scalar body via substring search — accurate when
+	// helm/hub passes leave the line text mostly intact (the common
+	// case for escape patterns), with a line-arithmetic fallback when
+	// no match is found.
+	emit := func(span blockScalarSpan, msgPrefix, fullErr, renderedSrc string) {
 		perr, ok := parseTemplateError(fullErr)
 		if !ok {
 			diagnostics = append(diagnostics, protocol.Diagnostic{
@@ -72,7 +81,10 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 			})
 			return
 		}
-		absLine := span.contentLine + (perr.line - 1)
+		body := ctx.Text[span.contentStart:span.contentEnd]
+		absLine, contextLine := mapErrLineToDocument(span, body, renderedSrc, perr.line)
+		// Clamp into block content for EOF-style errors that report a
+		// line past the last body line.
 		lastLine := span.contentLine
 		if span.contentEnd > span.contentStart {
 			lastLine = lineOfOffset(ctx.Text, span.contentEnd-1)
@@ -81,13 +93,17 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 			absLine = lastLine
 		}
 		lineLen := lineLengthAt(ctx.Text, absLine)
+		message := msgPrefix + ": " + perr.msg
+		if renderedSrc != "" && contextLine != "" {
+			message += " | rendered: " + contextLine
+		}
 		diagnostics = append(diagnostics, protocol.Diagnostic{
 			Range: protocol.Range{
 				Start: protocol.Position{Line: uint32(absLine), Character: 0},
 				End:   protocol.Position{Line: uint32(absLine), Character: uint32(lineLen)},
 			},
 			Severity: &sev, Code: &code, Source: &source,
-			Message: msgPrefix + ": " + perr.msg,
+			Message: message,
 		})
 	}
 
@@ -95,7 +111,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		body := ctx.Text[span.contentStart:span.contentEnd]
 		// Stage 1 (helm): parse only.
 		if _, err := parse.Parse("ot-raw", body, "{{", "}}", funcs); err != nil {
-			emit(span, "template parse error", err.Error())
+			emit(span, "template parse error", err.Error(), "")
 			continue
 		}
 		// Stage 2 (hub): render stage 1, parse output with custom delims.
@@ -112,7 +128,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 			continue
 		}
 		if _, err := parse.Parse("hub", rendered, "{{hub", "hub}}", hubFuncs); err != nil {
-			emit(span, "hub-template parse error", err.Error())
+			emit(span, "hub-template parse error", err.Error(), rendered)
 			continue
 		}
 		// Stage 2 execute: produce post-hub text for stage 3 input.
@@ -124,7 +140,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		}
 		// Stage 3 (managed): parse stage 2 output with standard delims.
 		if _, err := parse.Parse("managed", stage2Out, "{{", "}}", managedFuncs); err != nil {
-			emit(span, "managed-template parse error", err.Error())
+			emit(span, "managed-template parse error", err.Error(), stage2Out)
 		}
 	}
 	return diagnostics
@@ -289,6 +305,50 @@ func lineLengthAt(text string, line int) int {
 		return len(text) - start
 	}
 	return 0
+}
+
+// mapErrLineToDocument resolves a parser-reported line number into an
+// absolute document line. When the error originated in a rendered output
+// (stage 2 or 3), tries to substring-match the rendered line back into
+// the original block-scalar body — accurate for escape-pattern collapses
+// where most line content passes through unchanged. Falls back to plain
+// arithmetic mapping (`block.contentLine + (parserLine - 1)`) when no
+// substring match is found, or when `renderedSrc` is empty (stage 1,
+// where the parsed text IS the body and arithmetic mapping is exact).
+//
+// Returns the absolute document line plus the rendered context line so
+// the caller can include it in the diagnostic message for user clarity.
+func mapErrLineToDocument(span blockScalarSpan, body, renderedSrc string, parserLine int) (absLine int, contextLine string) {
+	absLine = span.contentLine + (parserLine - 1)
+	if renderedSrc == "" {
+		return absLine, ""
+	}
+	renderedLines := splitDocLines(renderedSrc)
+	idx := parserLine - 1
+	// Parser reports line one past the body for EOF errors — clamp.
+	if idx >= len(renderedLines) && len(renderedLines) > 0 {
+		idx = len(renderedLines) - 1
+	}
+	if idx < 0 || idx >= len(renderedLines) {
+		return absLine, ""
+	}
+	contextLine = strings.TrimSpace(renderedLines[idx].text)
+	if contextLine == "" {
+		return absLine, ""
+	}
+	// Substring-match into the original body. Walk body lines, find the
+	// one that contains contextLine (or vice versa for collapses).
+	bodyLines := splitDocLines(body)
+	for i, bl := range bodyLines {
+		bt := strings.TrimSpace(bl.text)
+		if bt == "" {
+			continue
+		}
+		if strings.Contains(bt, contextLine) || strings.Contains(contextLine, bt) {
+			return span.contentLine + i, contextLine
+		}
+	}
+	return absLine, contextLine
 }
 
 // templateParseError parses the standardized error format
