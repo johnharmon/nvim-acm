@@ -5,22 +5,31 @@ import (
 	"text/template/parse"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/values"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
 
 type templateSyntax struct {
 	resolver CatalogResolver
+	cache    *values.Cache
 }
 
-// NewTemplateSyntax constructs the rule with access to the catalog resolver.
-// At rule-evaluation time the resolver is queried for every known
-// helm/hub/managed/sprig/Go-builtin function name; those are registered as
-// no-op stubs in the parser's FuncMap so that legitimate ACM calls aren't
-// mis-classified as undefined identifiers. `hub` is also stubbed so that
-// the direct-form hub expression `{{hub fn args hub}}` parses cleanly as
-// an action whose first identifier is the `hub` "function".
-func NewTemplateSyntax(resolver CatalogResolver) Rule {
-	return templateSyntax{resolver: resolver}
+// NewTemplateSyntax constructs the rule with access to the catalog resolver
+// and the chart-values cache. At rule-evaluation time the resolver is
+// queried for every known helm/hub/managed/sprig/Go-builtin function name;
+// those are registered as no-op stubs in the parser's FuncMap so that
+// legitimate ACM calls aren't mis-classified as undefined identifiers.
+// `hub` is also stubbed so that the direct-form hub expression
+// `{{hub fn args hub}}` parses cleanly as an action whose first identifier
+// is the `hub` "function".
+//
+// The cache is consumed by the optional `executeHelm` Phase A.1 path: when
+// `rules.template-syntax.executeHelm = true`, each block-scalar is also
+// run through `text/template.Execute` against a data context built from
+// the merged chart values + overlay tree. Default off (it's experimental
+// and would change diagnostic surface area for users who haven't opted in).
+func NewTemplateSyntax(resolver CatalogResolver, cache *values.Cache) Rule {
+	return templateSyntax{resolver: resolver, cache: cache}
 }
 
 func (templateSyntax) ID() string { return "template-syntax" }

@@ -34,7 +34,7 @@ func enabledTemplateSyntaxSettings() Settings {
 }
 
 func TestTemplateSyntax_BalancedNoDiag(t *testing.T) {
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 spec:
@@ -55,7 +55,7 @@ func TestTemplateSyntax_MixedLayersOnSameLine(t *testing.T) {
 	// Direct hub + managed escape + helm if/end on a single line. With
 	// the stub FuncMap registered, the parser should see this as a
 	// sequence of valid actions and accept it.
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `spec:
   object-templates-raw: |
     {{hub fromSecret "ns" "n" "k" hub}}-{{ "{{" }}skipObject{{ "}}" }}-{{ if .x }}foo{{ end }}
@@ -67,7 +67,7 @@ func TestTemplateSyntax_MixedLayersOnSameLine(t *testing.T) {
 }
 
 func TestTemplateSyntax_MissingEnd(t *testing.T) {
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `spec:
   object-templates-raw: |
     {{ if .Values.x }}
@@ -85,7 +85,7 @@ func TestTemplateSyntax_MissingEnd(t *testing.T) {
 
 func TestTemplateSyntax_BadPipelineSyntax(t *testing.T) {
 	// A leading pipe with no left-hand-side is a syntax error.
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `spec:
   object-templates-raw: |
     {{ | upper }}
@@ -99,7 +99,7 @@ func TestTemplateSyntax_BadPipelineSyntax(t *testing.T) {
 func TestTemplateSyntax_PositionMapsToBlockLine(t *testing.T) {
 	// The error happens on the third content line of the block scalar,
 	// which is line 5 in the document (0-indexed: 4).
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `spec:
   object-templates-raw: |
     valid: '{{ printf "x" }}'
@@ -118,7 +118,7 @@ func TestTemplateSyntax_PositionMapsToBlockLine(t *testing.T) {
 }
 
 func TestTemplateSyntax_DisabledByConfig(t *testing.T) {
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `spec:
   object-templates-raw: |
     {{ if .x }}
@@ -131,7 +131,7 @@ func TestTemplateSyntax_DisabledByConfig(t *testing.T) {
 }
 
 func TestTemplateSyntax_NoBlockScalarNoDiag(t *testing.T) {
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `apiVersion: v1
 kind: Policy
 metadata:
@@ -146,7 +146,7 @@ metadata:
 func TestTemplateSyntax_MultipleBlocksIndependently(t *testing.T) {
 	// Two block scalars in the same document. First is valid, second is
 	// broken. Only the second should produce a diagnostic.
-	r := NewTemplateSyntax(miniTemplateResolver())
+	r := NewTemplateSyntax(miniTemplateResolver(), nil)
 	text := `---
 spec:
   object-templates-raw: |

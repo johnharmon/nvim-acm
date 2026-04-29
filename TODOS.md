@@ -170,7 +170,7 @@ lookup against the original document.
 
 ### Phase A — layered syntax check across helm / hub / managed (render-chain)
 
-**Status:** in-progress
+**Status:** in-progress (A.1 landed: render infrastructure; A.2 next: stage 2 hub-parse on render output)
 **Difficulty:** medium
 
 **Approach:** Three-stage parse + `Execute` chain. Each stage uses
@@ -246,6 +246,28 @@ own.
   Sets up infrastructure (data context, stubs, Execute path,
   source maps) that Phase B builds on.
 - Doesn't catch type mismatches across layers; that's Phase B.
+- **A.1 (landed):** `lsp-server/internal/rules/templateRender.go`
+  exposes `renderHelmStage(body, valuesRoot, resolved)` which
+  parses + Executes a block-scalar body against a stub data
+  context built from chart values + helm context catalog. All
+  catalog functions plus `hub` registered as no-op stubs.
+  Escape forms (`{{ "{{hub" }}` etc.) collapse to direct form
+  (`{{hub`) via natural string emission. Values cache is plumbed
+  through `templateSyntax.cache` ready for use. Tests cover the
+  collapse, sentinel data context, and values-tree conversion.
+  Not yet wired into the rule's diagnostic output — that's A.2.
+- **A.2 (next):** wire stage 2 hub-parse on stage 1's rendered
+  output, custom delims `{{hub` / `hub}}`, hub FuncMap. Position
+  mapping via line-based approximation initially.
+- **A.3:** stage 3 managed-parse (depends on A.2's source map).
+- **A.4:** proper byte-level source maps through Execute.
+
+The chained-missing-keys problem (`.Values.foo.bar.baz` where
+`.Values.foo` is unset → nil-pointer evaluation panic from text/
+template) is real and currently the reason Execute errors are NOT
+surfaced as diagnostics. `missingkey=zero` only handles map keys,
+not nested traversal of nil. Phase B's typed stubs + recursive
+defaulting data-context type fix this.
 
 ---
 
