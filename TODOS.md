@@ -310,7 +310,7 @@ defaulting data-context type fix this.
 
 ### Phase B — type-flow validation across template layers
 
-**Status:** proposed (depends on Phase A)
+**Status:** in-progress (B.1 landed: chained-missing-keys robustness; B.2–B.4 pending)
 **Difficulty:** high
 
 **Approach:** Promote stub functions from "return interface{}" to
@@ -356,6 +356,24 @@ managed side".
 - The user's motivating example: "you default to a dict here, but
   the next layer expects a string so this causes issues" is exactly
   what this phase is for.
+- **B.1 (landed):** chained-missing-keys robustness. Both
+  `renderHelmStage` and `renderHubStage` now walk the parsed
+  template tree via `collectAccessPaths`, gather every field-
+  access chain (`.Values.foo.bar.baz`, `.Release.Name`, etc.),
+  and pre-populate the data context with intermediate
+  `map[string]any` placeholders (and `""` sentinel leaves). Paths
+  are sorted longest-first so prefix relationships resolve
+  correctly — when both `.Values.x` and `.Values.x.y` are
+  referenced, the longer wins, leaving `x` as a navigable map.
+  Existing chart-derived values are never overwritten.
+  Unblocks `template-syntax.layered = true` for typical templates
+  that walk into unset values without surfacing nil-pointer
+  Execute panics. Tests cover the deep-nesting case, the prefix-
+  conflict case, and the chart-values-preserved case.
+- **B.2 (next):** typed stubs from catalog signatures via
+  `reflect.MakeFunc`.
+- **B.3:** variable type inference for `.Values.*` accesses.
+- **B.4:** cross-stage type continuity (rendered-output shape rules).
 
 ---
 

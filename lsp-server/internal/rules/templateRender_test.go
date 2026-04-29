@@ -3,6 +3,7 @@ package rules
 import (
 	"strings"
 	"testing"
+	"text/template"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
 	"github.com/acm-ls/lsp-server/internal/values"
@@ -156,6 +157,98 @@ func TestValuesNodeToAny_ConvertsTree(t *testing.T) {
 	}
 	if nested["x"] != "y" {
 		t.Errorf("nested.x: got %v, want y", nested["x"])
+	}
+}
+
+func TestRenderHelmStage_ChainedMissingValuesNoLongerPanics(t *testing.T) {
+	// Phase B.1 regression: `.Values.foo.bar.baz` where none of the
+	// intermediate keys exist used to nil-pointer during Execute. The
+	// access-path pre-populator now ensures every traversed segment
+	// has at least an empty-map placeholder, so Execute completes.
+	body := `{{ printf "%v" .Values.foo.bar.baz }}
+`
+	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
+	}
+	if execErr != nil {
+		t.Fatalf("execute should succeed against pre-populated chain, got: %v", execErr)
+	}
+	// printf with an empty-string leaf renders to empty in this
+	// stub setup. The exact output isn't asserted — what matters is
+	// that Execute completed without panicking.
+	_ = out
+}
+
+func TestRenderHelmStage_DeeplyNestedAccessPath(t *testing.T) {
+	body := `{{ if .Values.policies.namespaces.allowList }}match{{ end }}
+{{ printf "%v" .Values.policies.namespaces.allowList.first.name }}
+`
+	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
+	}
+	if execErr != nil {
+		t.Fatalf("deeply-nested access should not panic Execute, got: %v", execErr)
+	}
+}
+
+func TestCollectAccessPaths_ReturnsAllFieldChains(t *testing.T) {
+	body := `{{ .Values.x }}{{ .Release.Name }}{{ if .Values.foo.bar }}.{{ end }}`
+	tmpl, err := template.New("t").
+		Funcs(buildHelmStubFuncs(miniRenderResolved())).
+		Option("missingkey=zero").
+		Parse(body)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	paths := collectAccessPaths(tmpl)
+	want := map[string]bool{
+		"Values.x":          false,
+		"Release.Name":      false,
+		"Values.foo.bar":    false,
+	}
+	for _, p := range paths {
+		key := strings.Join(p, ".")
+		if _, expected := want[key]; expected {
+			want[key] = true
+		}
+	}
+	for k, found := range want {
+		if !found {
+			t.Errorf("expected to collect access path %q, didn't find it in %v", k, paths)
+		}
+	}
+}
+
+func TestEnsureAccessPaths_DoesntOverwriteExistingValues(t *testing.T) {
+	ctx := map[string]any{
+		"Values": map[string]any{
+			"existing": "real-value",
+		},
+	}
+	ensureAccessPaths(ctx, [][]string{
+		{"Values", "existing"},   // already present — must not overwrite
+		{"Values", "missing"},    // create
+		{"Values", "deep", "nested", "leaf"}, // create chain
+	})
+	v := ctx["Values"].(map[string]any)
+	if v["existing"] != "real-value" {
+		t.Errorf("existing value was overwritten: got %v, want %q", v["existing"], "real-value")
+	}
+	if _, ok := v["missing"]; !ok {
+		t.Errorf("missing path wasn't created: %v", v)
+	}
+	deep, ok := v["deep"].(map[string]any)
+	if !ok {
+		t.Fatalf("deep should be a map, got %T", v["deep"])
+	}
+	nested, ok := deep["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested should be a map, got %T", deep["nested"])
+	}
+	if _, ok := nested["leaf"]; !ok {
+		t.Errorf("leaf wasn't populated: %v", nested)
 	}
 }
 

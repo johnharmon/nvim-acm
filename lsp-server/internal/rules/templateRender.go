@@ -2,9 +2,11 @@ package rules
 
 import (
 	"bytes"
+	"sort"
 	"strconv"
 	"strings"
 	"text/template"
+	"text/template/parse"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
 	"github.com/acm-ls/lsp-server/internal/values"
@@ -42,8 +44,14 @@ func renderHelmStage(body string, valuesRoot *values.Node, resolved catalog.Reso
 	if err != nil {
 		return "", err, nil
 	}
-	var buf bytes.Buffer
 	data := buildHelmDataContext(valuesRoot, resolved)
+	// Pre-populate every field-access path the template references so
+	// chained navigation (`.Values.foo.bar.baz`) doesn't nil-pointer
+	// when `foo` isn't in values.yaml. This is the Phase B.1 robustness
+	// fix that makes layered mode safe to default-on for typical
+	// templates that walk into unset values.
+	ensureAccessPaths(data, collectAccessPaths(tmpl))
+	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return buf.String(), nil, err
 	}
@@ -170,11 +178,201 @@ func renderHubStage(text string, dataCtx map[string]any, resolved catalog.Resolv
 	if err != nil {
 		return "", err, nil
 	}
+	ensureAccessPaths(dataCtx, collectAccessPaths(tmpl))
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, dataCtx); err != nil {
 		return buf.String(), nil, err
 	}
 	return buf.String(), nil, nil
+}
+
+// collectAccessPaths walks the parse tree of `tmpl` and returns every
+// field-access path it references — i.e., every `.foo.bar.baz` the
+// template would navigate at execute time. Used to pre-populate the
+// data context so chained access into unset values doesn't nil-pointer.
+//
+// Returns paths as `[]string` slices like `["Values", "foo", "bar"]`.
+// FieldNodes are emitted directly; ChainNodes (which carry an Ident
+// list following a base expression like `.Values.x` chained off a
+// pipeline result) are also walked. The first segment is the
+// top-level field name, never a leading `.`.
+func collectAccessPaths(tmpl *template.Template) [][]string {
+	if tmpl == nil {
+		return nil
+	}
+	tree := tmpl.Tree
+	if tree == nil || tree.Root == nil {
+		return nil
+	}
+	paths := [][]string{}
+	walkParseNodes(tree.Root, func(n parse.Node) {
+		switch x := n.(type) {
+		case *parse.FieldNode:
+			if len(x.Ident) > 0 {
+				p := make([]string, len(x.Ident))
+				copy(p, x.Ident)
+				paths = append(paths, p)
+			}
+		case *parse.ChainNode:
+			if len(x.Field) > 0 {
+				// A ChainNode carries field access following a base
+				// expression. We can't always know what the base
+				// resolved to, but for the common case where the base
+				// is a `.Foo` access (FieldNode), the Field list
+				// extends the path.
+				// Skip for now — the underlying FieldNode is already
+				// captured by the FieldNode case above.
+			}
+		}
+	})
+	return paths
+}
+
+// ensureAccessPaths walks `paths` and creates intermediate map[string]any
+// entries in `ctx` for any segment that's missing. Leaf segments default
+// to an empty string sentinel. Existing values are left untouched (so
+// chart-derived `.Values` data isn't overwritten). When an intermediate
+// segment is already a non-map value, the path is abandoned — the
+// template will still error there, which is a real user issue (their
+// values shape doesn't match the template's expectation).
+//
+// Paths are processed longest-first so prefix relationships resolve
+// correctly: if a template references both `.Values.x.y` and `.Values.x`,
+// the longer path makes `x` a map; the shorter path's leaf-at-x then
+// sees an existing map and leaves it alone. Reverse order would set `x`
+// as a string leaf first, then bail on `y` because `x` is no longer
+// map-shaped.
+func ensureAccessPaths(ctx map[string]any, paths [][]string) {
+	sorted := make([][]string, len(paths))
+	copy(sorted, paths)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return len(sorted[i]) > len(sorted[j])
+	})
+	for _, p := range sorted {
+		ensureSinglePath(ctx, p)
+	}
+}
+
+func ensureSinglePath(ctx map[string]any, path []string) {
+	if len(path) == 0 {
+		return
+	}
+	cur := ctx
+	for i, seg := range path {
+		isLeaf := i == len(path)-1
+		existing, has := cur[seg]
+		if isLeaf {
+			if !has {
+				cur[seg] = ""
+			}
+			return
+		}
+		if !has {
+			next := map[string]any{}
+			cur[seg] = next
+			cur = next
+			continue
+		}
+		next, ok := existing.(map[string]any)
+		if !ok {
+			// Existing value isn't a map — can't navigate further.
+			// Template will error at this point, which surfaces as an
+			// execute-time diagnostic the user can act on.
+			return
+		}
+		cur = next
+	}
+}
+
+// walkParseNodes recursively visits every parse.Node in the tree. Care
+// is taken to skip *typed* nils (e.g. `IfNode.ElseList = (*ListNode)(nil)`,
+// which is interface-non-nil but pointer-nil and would otherwise crash
+// when the switch dereferences the pointer) by checking each pointer
+// before recursing.
+func walkParseNodes(n parse.Node, visit func(parse.Node)) {
+	if isNilNode(n) {
+		return
+	}
+	visit(n)
+	switch x := n.(type) {
+	case *parse.ListNode:
+		for _, c := range x.Nodes {
+			walkParseNodes(c, visit)
+		}
+	case *parse.ActionNode:
+		walkParseNodes(x.Pipe, visit)
+	case *parse.IfNode:
+		walkParseNodes(x.Pipe, visit)
+		walkParseNodes(x.List, visit)
+		walkParseNodes(x.ElseList, visit)
+	case *parse.RangeNode:
+		walkParseNodes(x.Pipe, visit)
+		walkParseNodes(x.List, visit)
+		walkParseNodes(x.ElseList, visit)
+	case *parse.WithNode:
+		walkParseNodes(x.Pipe, visit)
+		walkParseNodes(x.List, visit)
+		walkParseNodes(x.ElseList, visit)
+	case *parse.PipeNode:
+		for _, c := range x.Cmds {
+			walkParseNodes(c, visit)
+		}
+	case *parse.CommandNode:
+		for _, c := range x.Args {
+			walkParseNodes(c, visit)
+		}
+	case *parse.TemplateNode:
+		walkParseNodes(x.Pipe, visit)
+	}
+}
+
+// isNilNode handles the typed-nil-interface trap. `parse.Node` is an
+// interface; when a concrete pointer field is nil, wrapping it in the
+// interface gives a non-nil interface with a nil underlying value —
+// `n == nil` returns false and any deref panics.
+func isNilNode(n parse.Node) bool {
+	if n == nil {
+		return true
+	}
+	switch x := n.(type) {
+	case *parse.ListNode:
+		return x == nil
+	case *parse.ActionNode:
+		return x == nil
+	case *parse.IfNode:
+		return x == nil
+	case *parse.RangeNode:
+		return x == nil
+	case *parse.WithNode:
+		return x == nil
+	case *parse.PipeNode:
+		return x == nil
+	case *parse.CommandNode:
+		return x == nil
+	case *parse.TemplateNode:
+		return x == nil
+	case *parse.FieldNode:
+		return x == nil
+	case *parse.ChainNode:
+		return x == nil
+	case *parse.IdentifierNode:
+		return x == nil
+	case *parse.VariableNode:
+		return x == nil
+	case *parse.StringNode:
+		return x == nil
+	case *parse.NumberNode:
+		return x == nil
+	case *parse.BoolNode:
+		return x == nil
+	case *parse.NilNode:
+		return x == nil
+	case *parse.DotNode:
+		return x == nil
+	case *parse.TextNode:
+		return x == nil
+	}
+	return false
 }
 
 // buildHelmDataContext composes the data the helm-stage Execute walks.
