@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"text/template"
@@ -41,7 +42,7 @@ func TestRenderHelmStage_BalancedRenders(t *testing.T) {
 	body := `key: '{{ printf "%s" "static" }}'
 ns:  '{{ .Release.Namespace }}'
 `
-	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr != nil {
 		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
@@ -63,7 +64,7 @@ func TestRenderHelmStage_EscapeFormCollapses(t *testing.T) {
 	// custom-delim parser will need.
 	body := `{{ "{{hub" }} fromConfigMap "ns" "name" "key" {{ "hub}}" }}
 `
-	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr != nil {
 		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
@@ -81,7 +82,7 @@ func TestRenderHelmStage_EscapeFormCollapses(t *testing.T) {
 func TestRenderHelmStage_ManagedEscapeCollapses(t *testing.T) {
 	body := `data: '{{ "{{" }} skipObject {{ "}}" }}'
 `
-	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr != nil {
 		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
@@ -97,7 +98,7 @@ func TestRenderHelmStage_ParseErrorIsReturned(t *testing.T) {
 	body := `{{ if .Values.x }}
 no end here
 `
-	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr == nil {
 		t.Errorf("expected parse error for missing {{ end }}")
 	}
@@ -167,7 +168,7 @@ func TestRenderHelmStage_ChainedMissingValuesNoLongerPanics(t *testing.T) {
 	// has at least an empty-map placeholder, so Execute completes.
 	body := `{{ printf "%v" .Values.foo.bar.baz }}
 `
-	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	out, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr != nil {
 		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
@@ -184,7 +185,7 @@ func TestRenderHelmStage_DeeplyNestedAccessPath(t *testing.T) {
 	body := `{{ if .Values.policies.namespaces.allowList }}match{{ end }}
 {{ printf "%v" .Values.policies.namespaces.allowList.first.name }}
 `
-	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved())
+	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), false)
 	if parseErr != nil {
 		t.Fatalf("unexpected parse error: %v", parseErr)
 	}
@@ -249,6 +250,117 @@ func TestEnsureAccessPaths_DoesntOverwriteExistingValues(t *testing.T) {
 	}
 	if _, ok := nested["leaf"]; !ok {
 		t.Errorf("leaf wasn't populated: %v", nested)
+	}
+}
+
+// typedCatalogResolved returns a catalog with declared param/return
+// types so the typed-stub path can exercise arity and type checking.
+func typedCatalogResolved() catalog.Resolved {
+	str := func(name string) catalog.TemplateParam { return catalog.TemplateParam{Name: name, Type: "string"} }
+	intP := func(name string) catalog.TemplateParam { return catalog.TemplateParam{Name: name, Type: "int"} }
+	ret := func(t string) catalog.TemplateReturn { return catalog.TemplateReturn{Type: t} }
+	return catalog.Resolved{
+		AcmVersion: "test",
+		HubFunctions: []catalog.TemplateFunction{
+			{
+				Name:    "fromConfigMap",
+				Params:  []catalog.TemplateParam{str("namespace"), str("name"), str("key")},
+				Returns: ret("string"),
+			},
+			{
+				Name:    "lookup",
+				Params:  []catalog.TemplateParam{str("apiVersion"), str("kind"), str("namespace"), str("name")},
+				Returns: ret("dict"),
+			},
+		},
+		GoBuiltins: []catalog.TemplateFunction{
+			{
+				Name:    "intLen",
+				Params:  []catalog.TemplateParam{intP("n")},
+				Returns: ret("int"),
+			},
+		},
+	}
+}
+
+func TestRenderHelmStage_TypedStubs_CorrectCallSucceeds(t *testing.T) {
+	body := `{{ fromConfigMap "ns" "cm" "k" }}`
+	_, parseErr, execErr := renderHelmStage(body, nil, typedCatalogResolved(), true)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
+	}
+	if execErr != nil {
+		t.Fatalf("3 string args matches catalog signature; should succeed. got: %v", execErr)
+	}
+}
+
+func TestRenderHelmStage_TypedStubs_WrongArity(t *testing.T) {
+	body := `{{ fromConfigMap "ns" "cm" }}` // catalog says 3 args, only 2 provided
+	_, parseErr, execErr := renderHelmStage(body, nil, typedCatalogResolved(), true)
+	if parseErr != nil {
+		t.Fatalf("parse should succeed (arity is checked at execute): %v", parseErr)
+	}
+	if execErr == nil {
+		t.Fatalf("expected execute error for wrong arity")
+	}
+	if !strings.Contains(execErr.Error(), "fromConfigMap") {
+		t.Errorf("expected error to mention fromConfigMap; got: %v", execErr)
+	}
+}
+
+func TestRenderHelmStage_TypedStubs_UntypedFallbackWhenNoCatalogTypes(t *testing.T) {
+	// miniRenderResolved declares functions without param/return types.
+	// Even with typed=true, all stubs fall back to the untyped variant
+	// so existing behavior is preserved.
+	body := `{{ fromConfigMap "ns" "cm" "k" "extra" }}`
+	_, parseErr, execErr := renderHelmStage(body, nil, miniRenderResolved(), true)
+	if parseErr != nil {
+		t.Fatalf("unexpected parse error: %v", parseErr)
+	}
+	if execErr != nil {
+		t.Fatalf("untyped fallback should accept any arity; got: %v", execErr)
+	}
+}
+
+func TestMakeTypedStub_CorrectSignature(t *testing.T) {
+	fn := catalog.TemplateFunction{
+		Name: "f",
+		Params: []catalog.TemplateParam{
+			{Name: "a", Type: "string"},
+			{Name: "b", Type: "int"},
+		},
+		Returns: catalog.TemplateReturn{Type: "bool"},
+	}
+	stub, ok := makeTypedStub(fn)
+	if !ok {
+		t.Fatalf("makeTypedStub returned ok=false for fully-declared function")
+	}
+	v := reflect.ValueOf(stub)
+	if v.Kind() != reflect.Func {
+		t.Fatalf("stub should be a function value, got %v", v.Kind())
+	}
+	ft := v.Type()
+	if ft.NumIn() != 2 {
+		t.Errorf("stub NumIn = %d, want 2", ft.NumIn())
+	}
+	if ft.NumOut() != 2 {
+		t.Errorf("stub NumOut = %d, want 2 (return + error)", ft.NumOut())
+	}
+	if ft.In(0).Kind() != reflect.String {
+		t.Errorf("first param: got %v, want string", ft.In(0))
+	}
+	if ft.In(1).Kind() != reflect.Int {
+		t.Errorf("second param: got %v, want int", ft.In(1))
+	}
+	if ft.Out(0).Kind() != reflect.Bool {
+		t.Errorf("first return: got %v, want bool", ft.Out(0))
+	}
+}
+
+func TestMakeTypedStub_FallsBackOnEmptyDeclaration(t *testing.T) {
+	fn := catalog.TemplateFunction{Name: "f"}
+	if _, ok := makeTypedStub(fn); ok {
+		t.Errorf("should fallback when both Params and Returns.Type are empty")
 	}
 }
 

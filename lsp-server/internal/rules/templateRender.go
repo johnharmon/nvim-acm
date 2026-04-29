@@ -2,6 +2,7 @@ package rules
 
 import (
 	"bytes"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,8 +36,13 @@ import (
 //     pre/post Execute so the form survives stage 1.
 //   - No source map. Stage-2/3 errors map to approximate positions only.
 //     Phase A.4 will add per-byte source mapping.
-func renderHelmStage(body string, valuesRoot *values.Node, resolved catalog.Resolved) (rendered string, parseErr, execErr error) {
-	funcs := buildHelmStubFuncs(resolved)
+func renderHelmStage(body string, valuesRoot *values.Node, resolved catalog.Resolved, typed bool) (rendered string, parseErr, execErr error) {
+	var funcs template.FuncMap
+	if typed {
+		funcs = buildHelmTypedFuncs(resolved)
+	} else {
+		funcs = buildHelmStubFuncs(resolved)
+	}
 	tmpl, err := template.New("helm").
 		Funcs(funcs).
 		Option("missingkey=zero").
@@ -58,15 +64,145 @@ func renderHelmStage(body string, valuesRoot *values.Node, resolved catalog.Reso
 	return buf.String(), nil, nil
 }
 
+// buildHelmTypedFuncs builds the FuncMap for stage-1 helm Execute with
+// typed stubs. Each function's signature mirrors its catalog
+// declaration; calling with wrong arity or incompatible literal types
+// surfaces as a typed Execute error during Execute that becomes a
+// Phase B diagnostic. Functions whose catalog entries don't carry
+// enough type info (no Params and no Returns.Type) fall back to the
+// untyped `...any → any` stub so they remain permissive — preferable
+// to refusing the function entirely and surfacing a parse-time
+// "function not defined" error from incomplete catalog metadata.
+//
+// `hub` is always untyped (the direct hub form `{{hub fn args hub}}`
+// passes heterogeneous identifiers and the catalog doesn't carry a
+// synthetic signature for the `hub` keyword itself).
+func buildHelmTypedFuncs(c catalog.Resolved) template.FuncMap {
+	return buildLayerTypedFuncs(c.HelmFunctions, c.HubFunctions, c.ManagedFunctions, c.SprigFunctions, c.GoBuiltins)
+}
+
+// buildHubTypedFuncs builds the FuncMap for stage-2 hub Execute with
+// typed stubs. Includes only hub + sprig + go-builtin functions —
+// helm-only and managed-only functions stay unregistered so cross-
+// layer misuse surfaces as "function not defined" at parse time.
+func buildHubTypedFuncs(c catalog.Resolved) template.FuncMap {
+	return buildLayerTypedFuncs(c.HubFunctions, c.SprigFunctions, c.GoBuiltins)
+}
+
+// buildLayerTypedFuncs is the workhorse for the typed-stub builders.
+// Iterates each provided function list in order, skipping duplicates
+// (later lists don't override earlier ones), and emits typed stubs
+// where catalog signatures permit.
+func buildLayerTypedFuncs(funcLists ...[]catalog.TemplateFunction) template.FuncMap {
+	out := template.FuncMap{
+		"hub": untypedStub,
+	}
+	for _, fns := range funcLists {
+		for _, f := range fns {
+			if _, exists := out[f.Name]; exists {
+				continue
+			}
+			if stub, ok := makeTypedStub(f); ok {
+				out[f.Name] = stub
+				continue
+			}
+			out[f.Name] = untypedStub
+		}
+	}
+	return out
+}
+
+func untypedStub(args ...any) (any, error) { return nil, nil }
+
+var (
+	anyType   = reflect.TypeOf((*any)(nil)).Elem()
+	errorType = reflect.TypeOf((*error)(nil)).Elem()
+)
+
+// catalogTypeReflect maps a catalog `type` field string to a Go
+// reflect.Type. Unknown values resolve to interface{} so the stub
+// accepts anything (effectively skipping type checking for that
+// position) — preferable to refusing the function entirely.
+func catalogTypeReflect(s string) reflect.Type {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "string":
+		return reflect.TypeOf("")
+	case "int", "integer":
+		return reflect.TypeOf(int(0))
+	case "number", "float":
+		return reflect.TypeOf(float64(0))
+	case "bool", "boolean":
+		return reflect.TypeOf(false)
+	case "list", "array":
+		return reflect.TypeOf([]any{})
+	case "map", "dict", "object":
+		return reflect.TypeOf(map[string]any{})
+	}
+	return anyType
+}
+
+// makeTypedStub constructs a stub function whose signature mirrors `fn`'s
+// catalog declaration. Returns the stub plus a boolean indicating whether
+// the catalog provided enough information to build a typed signature.
+//
+// Variadic params: if the last param is marked `Variadic`, the stub is
+// declared variadic and accepts a slice of the param's element type.
+// Optional params are not currently distinguished — text/template doesn't
+// have a concept of optional, so a function declared with optional params
+// would reject calls that omit them. To keep stubs permissive in that
+// case, fall back to the untyped variant when any optional appears in a
+// non-trailing position.
+func makeTypedStub(fn catalog.TemplateFunction) (any, bool) {
+	if fn.Returns.Type == "" && len(fn.Params) == 0 {
+		return nil, false
+	}
+	inTypes := make([]reflect.Type, 0, len(fn.Params))
+	isVariadic := false
+	for i, p := range fn.Params {
+		t := catalogTypeReflect(p.Type)
+		isLast := i == len(fn.Params)-1
+		if p.Optional && !isLast {
+			// Mid-position optional — can't model in Go func sig.
+			return nil, false
+		}
+		if p.Optional && isLast {
+			// Treat trailing optional as variadic of single element.
+			inTypes = append(inTypes, reflect.SliceOf(t))
+			isVariadic = true
+			continue
+		}
+		if p.Variadic {
+			if !isLast {
+				return nil, false
+			}
+			inTypes = append(inTypes, reflect.SliceOf(t))
+			isVariadic = true
+			continue
+		}
+		inTypes = append(inTypes, t)
+	}
+	outType := catalogTypeReflect(fn.Returns.Type)
+	outTypes := []reflect.Type{outType, errorType}
+	fnType := reflect.FuncOf(inTypes, outTypes, isVariadic)
+	impl := reflect.MakeFunc(fnType, func(_ []reflect.Value) []reflect.Value {
+		return []reflect.Value{reflect.Zero(outType), reflect.Zero(errorType)}
+	})
+	return impl.Interface(), true
+}
+
 // buildHelmStubFuncs builds a template.FuncMap with a no-op stub for every
 // helm / hub / managed / sprig / Go-builtin function name in the resolved
 // catalog, plus `hub` itself. All stubs accept any args and return "".
+//
+// Used by `renderHelmStage` for stage-1 Execute. Kept around as the
+// untyped-fallback baseline for cases where typed stubs would over-
+// constrain (most tests use catalogs without declared types).
 //
 // `text/template.Parse` requires every identifier in command position to
 // resolve to a registered function; unknown ones are parse errors. The
 // catalog already enumerates the names we care about, so we register them
 // all as accepting any args. Type checking against catalog signatures is
-// Phase B.
+// the typed-stub path (`buildTypedStubFuncs`).
 func buildHelmStubFuncs(c catalog.Resolved) template.FuncMap {
 	stub := func(args ...any) (string, error) { return "", nil }
 	out := template.FuncMap{
@@ -168,8 +304,13 @@ func buildHubDataContext(c catalog.Resolved) map[string]any {
 // the document, suitable as input for stage 3 (managed-side parse).
 //
 // Same parseErr/execErr semantics as renderHelmStage.
-func renderHubStage(text string, dataCtx map[string]any, resolved catalog.Resolved) (rendered string, parseErr, execErr error) {
-	funcs := buildHubStubFuncs(resolved)
+func renderHubStage(text string, dataCtx map[string]any, resolved catalog.Resolved, typed bool) (rendered string, parseErr, execErr error) {
+	var funcs template.FuncMap
+	if typed {
+		funcs = buildHubTypedFuncs(resolved)
+	} else {
+		funcs = buildHubStubFuncs(resolved)
+	}
 	tmpl, err := template.New("hub").
 		Delims("{{hub", "hub}}").
 		Funcs(funcs).

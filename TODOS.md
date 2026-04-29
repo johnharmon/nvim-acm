@@ -310,7 +310,7 @@ defaulting data-context type fix this.
 
 ### Phase B — type-flow validation across template layers
 
-**Status:** in-progress (B.1 landed: chained-missing-keys robustness; B.2–B.4 pending)
+**Status:** in-progress (B.1 + B.2 landed: missing-keys robustness + typed stubs; B.3–B.4 pending)
 **Difficulty:** high
 
 **Approach:** Promote stub functions from "return interface{}" to
@@ -370,8 +370,24 @@ managed side".
   that walk into unset values without surfacing nil-pointer
   Execute panics. Tests cover the deep-nesting case, the prefix-
   conflict case, and the chart-values-preserved case.
-- **B.2 (next):** typed stubs from catalog signatures via
-  `reflect.MakeFunc`.
+- **B.2 (landed):** typed stubs from catalog signatures via
+  `reflect.MakeFunc`. `makeTypedStub` reads a catalog function's
+  `Params` and `Returns.Type` fields, maps each to a Go
+  `reflect.Type` (string → `string`, dict/map → `map[string]any`,
+  list/array → `[]any`, etc.), and constructs a function value
+  with the matching signature using `reflect.MakeFunc`. The stub
+  returns the zero value of its declared return type. Callers
+  with wrong arity or incompatible literal types surface as
+  `Execute` errors which become Phase B diagnostics. Functions
+  with no declared types fall back to the untyped variadic
+  variant — preferable to refusing the function entirely when
+  catalog metadata is incomplete. Gated behind
+  `rules.template-syntax.typedStubs = true` (default off) so
+  default behavior matches Phase A. `buildHelmTypedFuncs` /
+  `buildHubTypedFuncs` build the per-layer FuncMaps. Variadic
+  catalog params translate to Go-variadic at the trailing
+  position; mid-position `optional` falls back to untyped (Go
+  has no concept of optional non-trailing params).
 - **B.3:** variable type inference for `.Values.*` accesses.
 - **B.4:** cross-stage type continuity (rendered-output shape rules).
 

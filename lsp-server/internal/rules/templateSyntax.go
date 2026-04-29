@@ -45,6 +45,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 
 	funcs := buildStubFuncMap(resolved)
 	layered := Get(ctx.Settings, "rules.template-syntax.layered", false)
+	typedStubs := Get(ctx.Settings, "rules.template-syntax.typedStubs", false)
 	hubFuncs := map[string]any(buildHubStubFuncs(resolved))
 	managedFuncs := map[string]any(buildManagedStubFuncs(resolved))
 
@@ -121,7 +122,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		if !layered {
 			continue
 		}
-		rendered, _, execErr := renderHelmStage(body, valuesRoot, resolved)
+		rendered, _, execErr := renderHelmStage(body, valuesRoot, resolved, typedStubs)
 		if execErr != nil {
 			// Stage 1 didn't produce usable output — skip stage 2 silently.
 			// Phase B will surface execute errors as typed diagnostics.
@@ -133,7 +134,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		}
 		// Stage 2 execute: produce post-hub text for stage 3 input.
 		hubData := buildHubDataContext(resolved)
-		stage2Out, _, hubExecErr := renderHubStage(rendered, hubData, resolved)
+		stage2Out, _, hubExecErr := renderHubStage(rendered, hubData, resolved, typedStubs)
 		if hubExecErr != nil {
 			// Stage 2 didn't render usable output — skip stage 3 silently.
 			continue

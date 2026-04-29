@@ -64,11 +64,18 @@ local default_config = {
         -- after the helm-level parse passes, run text/template Execute
         -- against a chart-values data context, then parse the rendered
         -- output with `{{hub`/`hub}}` delims. Catches hub-side syntax
-        -- errors that only show up after helm renders. Default off
-        -- because Execute can fail silently on chained-missing-values
-        -- (`.Values.foo.bar.baz` where `.foo` is undefined) until
-        -- Phase B's typed stubs add robust missing-keys handling.
-        ["template-syntax"] = { enabled = true, severity = "warning", layered = false },
+        -- errors that only show up after helm renders.
+        --
+        -- `typedStubs = true` opts in to Phase B.2 type-aware stub
+        -- functions. Catalog-declared `params` and `returns.type` are
+        -- mapped to Go types via reflect.MakeFunc; calls with wrong
+        -- arity or incompatible literal types surface as Execute
+        -- diagnostics. Functions whose catalog entries don't carry
+        -- type info fall back to permissive untyped stubs.
+        --
+        -- Both default off pending broader Phase B work (variable type
+        -- inference, cross-stage type continuity).
+        ["template-syntax"] = { enabled = true, severity = "warning", layered = false, typedStubs = false },
       },
     },
   },
