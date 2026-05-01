@@ -18,10 +18,13 @@ no `Co-Authored-By` trailer.
 
 ## What's already done
 
-- **8 diagnostic rules** — see `lsp-server/internal/rules/`:
-  - `policy-name-length`, `policy-name-pattern`,
-    `policy-name-template` (strict/resolve/both), `hub-forbidden-functions`,
-    `lookup-default-dict` — name / forbidden-function / lookup checks.
+- **9 diagnostic rules** — see `lsp-server/internal/rules/`:
+  - `policy-name-length` (default max 40), `policy-namespace-length`
+    (default max 20), `policy-name-pattern`, `policy-name-template`
+    (strict/resolve/both), `hub-forbidden-functions`,
+    `lookup-default-dict` — name / namespace / pattern / forbidden-
+    function / lookup checks. Defaults match a typical enterprise
+    CI gate (40-char policy name, 20-char namespace).
   - `unclosed-delimiters` (default on, error) — state-machine pairing
     of helm `{{`/`}}` plus orphan detection across direct hub
     (`{{hub`/`hub}}`), hub-escape (`{{ "{{hub" }}` / `{{ "hub}}" }}`)
@@ -81,7 +84,7 @@ nvim-acm/
 │       ├── parsedoc/              # YAML kind/name + LSP range
 │       ├── context/               # detector.go, hubspans.go, acmcontext.go
 │       ├── values/                # chartvalues, compose, templaterender, pathparser
-│       ├── rules/                 # 8 diagnostic rules
+│       ├── rules/                 # 9 diagnostic rules
 │       ├── providers/             # completion, hover, signaturehelp, semantictokens
 │       └── server/server.go       # glsp wiring
 ├── lua/acm-ls/                    # init.lua (setup), treesitter.lua (parser check)

@@ -10,10 +10,12 @@ import (
 
 // ParsedDoc captures the bits of a Kubernetes-style YAML doc the rules need.
 type ParsedDoc struct {
-	Kind     string
-	Name     string
-	NameNode *yaml.Node
-	KindNode *yaml.Node
+	Kind          string
+	Name          string
+	Namespace     string
+	NameNode      *yaml.Node
+	KindNode      *yaml.Node
+	NamespaceNode *yaml.Node
 }
 
 // ParseAll splits text into individual YAML documents and extracts kind+name.
@@ -50,9 +52,16 @@ func ParseAll(text string) []ParsedDoc {
 					for j := 0; j+1 < len(val.Content); j += 2 {
 						mk := val.Content[j]
 						mv := val.Content[j+1]
-						if mk.Kind == yaml.ScalarNode && mk.Value == "name" && mv.Kind == yaml.ScalarNode {
+						if mk.Kind != yaml.ScalarNode || mv.Kind != yaml.ScalarNode {
+							continue
+						}
+						switch mk.Value {
+						case "name":
 							pd.Name = mv.Value
 							pd.NameNode = mv
+						case "namespace":
+							pd.Namespace = mv.Value
+							pd.NamespaceNode = mv
 						}
 					}
 				}

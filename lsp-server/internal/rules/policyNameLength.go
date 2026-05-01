@@ -15,7 +15,7 @@ func (policyNameLength) Run(ctx Context) []protocol.Diagnostic {
 	if !Get(ctx.Settings, "rules.policy-name-length.enabled", true) {
 		return nil
 	}
-	maxLength := GetInt(ctx.Settings, "rules.policy-name-length.maxLength", 63)
+	maxLength := GetInt(ctx.Settings, "rules.policy-name-length.maxLength", 40)
 	severity := Severity(Get(ctx.Settings, "rules.policy-name-length.severity", string(SeverityWarning)))
 	defaultKinds := []string{
 		"Policy", "PlacementBinding", "PlacementRule", "Placement",

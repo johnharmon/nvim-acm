@@ -56,6 +56,7 @@ func New(cfg Config) *Server {
 		catalogsDir: catalogsDir,
 		rules: []rules.Rule{
 			rules.PolicyNameLength,
+			rules.PolicyNamespaceLength,
 			rules.PolicyNamePattern,
 			rules.NewPolicyNameTemplate(cache),
 			rules.HubForbiddenFunctions,

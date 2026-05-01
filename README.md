@@ -13,7 +13,7 @@ Neovim plugin can ship and version independently.
 
 | Feature | LSP method | Implementation |
 |---|---|---|
-| Diagnostics (8 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
+| Diagnostics (9 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
 | Completion | `textDocument/completion` | `lsp-server/internal/providers/completion.go` |
 | Hover | `textDocument/hover` | `lsp-server/internal/providers/hover.go` |
 | Signature help | `textDocument/signatureHelp` | `lsp-server/internal/providers/signaturehelp.go` |
@@ -25,7 +25,8 @@ Neovim plugin can ship and version independently.
 
 | Rule | Default | Severity | What it catches |
 |---|---|---|---|
-| `policy-name-length` | on | warning | Policy / PlacementBinding / etc. with `metadata.name` longer than the configured maximum (default 63). |
+| `policy-name-length` | on | warning | Policy / PlacementBinding / etc. with `metadata.name` longer than the configured maximum (default 40 — typical enterprise CI gate). |
+| `policy-namespace-length` | on | warning | Same kinds with `metadata.namespace` longer than the configured maximum (default 20). Skipped silently when no namespace is declared. |
 | `policy-name-pattern` | off | warning | Names that don't match a configurable regex. |
 | `policy-name-template` | on | warning | Names containing template expressions; `mode = strict` flags any template, `resolve` renders against `values.yaml` and checks the result, `both` runs both checks. |
 | `hub-forbidden-functions` | on | error | Use of functions that aren't valid in hub-template context (`trimPrefix`, `trimSuffix`, …). |
@@ -98,7 +99,7 @@ nvim-acm/                          # standard nvim plugin layout
 │       │                          #   hub-span finder, ACM-context check
 │       ├── values/                # values.yaml parser, overlays merge,
 │       │                          #   .Values.* path parser, mini renderer
-│       ├── rules/                 # 8 diagnostic rule implementations
+│       ├── rules/                 # 9 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
 ├── lua/acm-ls/
@@ -199,7 +200,8 @@ settings = {
     enabled = true,
     acm = { version = "2.15" },
     rules = {
-      ["policy-name-length"]      = { enabled = true, severity = "warning", maxLength = 63 },
+      ["policy-name-length"]      = { enabled = true, severity = "warning", maxLength = 40 },
+      ["policy-namespace-length"] = { enabled = true, severity = "warning", maxLength = 20 },
       ["policy-name-pattern"]     = { enabled = false, pattern = "^policy-" },
       ["policy-name-template"]    = { enabled = true, mode = "strict" },  -- or "resolve"/"both"
       ["hub-forbidden-functions"] = { enabled = true, severity = "error" },

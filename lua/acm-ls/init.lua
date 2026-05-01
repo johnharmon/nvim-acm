@@ -39,7 +39,16 @@ local default_config = {
         ["policy-name-length"] = {
           enabled = true,
           severity = "warning",
-          maxLength = 63,
+          maxLength = 40,
+          kinds = {
+            "Policy", "PlacementBinding", "PlacementRule", "Placement",
+            "ConfigurationPolicy", "OperatorPolicy",
+          },
+        },
+        ["policy-namespace-length"] = {
+          enabled = true,
+          severity = "warning",
+          maxLength = 20,
           kinds = {
             "Policy", "PlacementBinding", "PlacementRule", "Placement",
             "ConfigurationPolicy", "OperatorPolicy",
