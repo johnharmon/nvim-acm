@@ -177,6 +177,58 @@ func TestUnclosedDelimiters_OrphanHubEscapePair(t *testing.T) {
 	}
 }
 
+func TestUnclosedDelimiters_SingleLineComment(t *testing.T) {
+	text := `key: '{{/* a comment */}}'`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced single-line comment should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_MultiLineComment(t *testing.T) {
+	text := `data: |
+  {{/* multi-line
+       comment block
+       with several lines */}}
+`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced multi-line comment should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_CommentContainingBraces(t *testing.T) {
+	// A comment whose body contains `{{` and `}}` literals must not
+	// trip the open/close state machine.
+	text := `{{/* talks about {{hub fn args hub}} and {{ printf "x" }} */}}`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("comment body containing {{/}} literals should not produce diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_TrimMarkerComment(t *testing.T) {
+	// Trim variants `{{- /* ... */ -}}` should also pair correctly.
+	text := `{{- /* trimmed comment */ -}}`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("trim-marker comment should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_UnterminatedComment(t *testing.T) {
+	// `{{/* without */}}` — comment never terminates, so the `{{` is
+	// unclosed at EOF. Must surface a diagnostic.
+	text := `{{/* this comment never closes`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 diagnostic for unclosed `{{` containing unterminated comment, got %d: %+v", len(diags), diags)
+	}
+	if !strings.Contains(diags[0].Message, "Unclosed go-template delimiter") {
+		t.Errorf("unexpected message: %q", diags[0].Message)
+	}
+}
+
 func TestUnclosedDelimiters_DisabledByConfig(t *testing.T) {
 	text := `key: {{ printf "x"`
 	settings := Settings{"rules": map[string]any{"unclosed-delimiters": map[string]any{"enabled": false}}}

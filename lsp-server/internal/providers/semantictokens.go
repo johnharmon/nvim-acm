@@ -135,7 +135,9 @@ func buildVocabulary(c catalog.Resolved) vocabulary {
 }
 
 // findExpressionSpans scans text and returns each `{{...}}` span, respecting
-// string literals so `}}` inside `"..."` doesn't close the expression.
+// string literals so `}}` inside `"..."` doesn't close the expression and
+// `/* … */` go-template comments so `}}` (or `{{`) embedded in comment
+// bodies don't falsely terminate the span.
 func findExpressionSpans(text string) []expressionSpan {
 	spans := []expressionSpan{}
 	i := 0
@@ -171,6 +173,18 @@ func findExpressionSpans(text string) []expressionSpan {
 				inString = true
 				stringChar = c
 				i++
+				continue
+			}
+			if c == '/' && i+1 < len(text) && text[i+1] == '*' {
+				i += 2
+				for i+1 < len(text) && !(text[i] == '*' && text[i+1] == '/') {
+					i++
+				}
+				if i+1 < len(text) {
+					i += 2
+				} else {
+					i = len(text)
+				}
 				continue
 			}
 			if c == '-' && i+2 < len(text) && text[i+1] == '}' && text[i+2] == '}' {

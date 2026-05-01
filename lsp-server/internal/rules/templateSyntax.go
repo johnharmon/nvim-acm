@@ -110,8 +110,15 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 
 	for _, span := range findObjectTemplatesRawBlocks(ctx.Text) {
 		body := ctx.Text[span.contentStart:span.contentEnd]
+		// Variables defined at chart-top (e.g. `{{- $policyNamespace :=
+		// .Values.x -}}`) aren't visible to the parser when we parse a
+		// block scalar in isolation. Pre-scan the body for `$var`
+		// references that aren't declared inside the body itself, and
+		// prepend phantom declarations so text/template/parse's
+		// scope-check doesn't error on legitimate uses.
+		augmentedBody := bodyWithPhantomVars(body)
 		// Stage 1 (helm): parse only.
-		if _, err := parse.Parse("ot-raw", body, "{{", "}}", funcs); err != nil {
+		if _, err := parse.Parse("ot-raw", augmentedBody, "{{", "}}", funcs); err != nil {
 			emit(span, "template parse error", err.Error(), "")
 			continue
 		}
@@ -122,7 +129,7 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		if !layered {
 			continue
 		}
-		rendered, _, execErr := renderHelmStage(body, valuesRoot, resolved, typedStubs)
+		rendered, _, execErr := renderHelmStage(augmentedBody, valuesRoot, resolved, typedStubs)
 		if execErr != nil {
 			// Stage 1 didn't produce usable output — skip stage 2 silently.
 			// Phase B will surface execute errors as typed diagnostics.
@@ -350,6 +357,56 @@ func mapErrLineToDocument(span blockScalarSpan, body, renderedSrc string, parser
 		}
 	}
 	return absLine, contextLine
+}
+
+// varDeclRE matches `$name :=` declarations (with optional whitespace
+// between `$name` and `:=`). Used to identify variables that are
+// declared inside a body, so phantom declarations only get prepended
+// for variables that aren't already declared locally.
+var varDeclRE = regexp.MustCompile(`\$(\w+)\s*:=`)
+
+// varRefRE matches `$name` references. Catches variables in any
+// position — action body, argument list, etc.
+var varRefRE = regexp.MustCompile(`\$(\w+)`)
+
+// bodyWithPhantomVars returns the body prefixed with `{{- $name := ""
+// -}}` declarations for every `$name` referenced in the body but not
+// declared inside it. This makes text/template/parse's scope check
+// accept block scalars that reference variables defined at chart-top
+// (`{{- $policyNamespace := .Values.policy_namespace -}}` outside any
+// `object-templates-raw:` block).
+//
+// The prepended declarations use trim markers (`{{- … -}}`) so they
+// don't introduce visible whitespace or newlines — line numbers in
+// the augmented body match the original 1:1, so parser-error line
+// reports map back to the user's source positions cleanly.
+//
+// False positives are bounded: variables matching `$word` inside
+// string literals or YAML scalars also get phantom declarations,
+// which is harmless. False negatives only occur if the catalog or
+// users introduce a variable form we don't recognize as `$word`.
+func bodyWithPhantomVars(body string) string {
+	declared := map[string]bool{}
+	for _, m := range varDeclRE.FindAllStringSubmatch(body, -1) {
+		declared[m[1]] = true
+	}
+	used := map[string]bool{}
+	for _, m := range varRefRE.FindAllStringSubmatch(body, -1) {
+		used[m[1]] = true
+	}
+	var prefix strings.Builder
+	for name := range used {
+		if declared[name] {
+			continue
+		}
+		prefix.WriteString(`{{- $`)
+		prefix.WriteString(name)
+		prefix.WriteString(` := "" -}}`)
+	}
+	if prefix.Len() == 0 {
+		return body
+	}
+	return prefix.String() + body
 }
 
 // templateParseError parses the standardized error format

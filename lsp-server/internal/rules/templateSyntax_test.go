@@ -330,6 +330,57 @@ func TestTemplateSyntax_LayeredOn_SubstringMapsToOriginalLine(t *testing.T) {
 	}
 }
 
+func TestTemplateSyntax_VariableDefinedAtChartTop_NoFalsePositive(t *testing.T) {
+	// Real-world pattern: `$policyNamespace` is defined at chart-top
+	// (outside any block scalar) and referenced inside object-templates-
+	// raw. We parse block scalars in isolation, so the parser doesn't
+	// see the chart-top declaration. Phantom declarations get prepended
+	// for any `$var` referenced but not declared inside the body.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `{{- $policyNamespace := .Values.policy_namespace -}}
+spec:
+  configurationPolicy:
+    object-templates-raw: |
+      data:
+        ns: '{{ $policyNamespace }}'
+        nested: '{{ "{{hub" }} fromConfigMap "{{ $policyNamespace }}" "name" "key" {{ "hub}}" }}'
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxSettings()})
+	if len(diags) != 0 {
+		t.Errorf("chart-top variable used in block scalar should not trigger parse error, got: %+v", diags)
+	}
+}
+
+func TestTemplateSyntax_VariableDeclaredInBody_NoPhantomCollision(t *testing.T) {
+	// When a variable IS declared inside the body, no phantom is
+	// prepended (otherwise `:=` would re-declare and parse-error).
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{- $local := "value" -}}
+    key: '{{ $local }}'
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxSettings()})
+	if len(diags) != 0 {
+		t.Errorf("locally-declared variable shouldn't trip phantom-redeclaration; got: %+v", diags)
+	}
+}
+
+func TestBodyWithPhantomVars_OnlyPrependsUndeclared(t *testing.T) {
+	body := `{{- $local := "x" -}}{{ $local }} {{ $external }} {{ $alsoExternal }}`
+	got := bodyWithPhantomVars(body)
+	if !strings.Contains(got, `$external := ""`) {
+		t.Errorf("missing phantom for $external in: %q", got)
+	}
+	if !strings.Contains(got, `$alsoExternal := ""`) {
+		t.Errorf("missing phantom for $alsoExternal in: %q", got)
+	}
+	// Only one occurrence of `$local := "x"` (the original), no phantom.
+	if strings.Count(got, "$local := ") != 1 {
+		t.Errorf(`local declaration should appear exactly once (no phantom), got: %q`, got)
+	}
+}
+
 func TestFindObjectTemplatesRawBlocks_Indent(t *testing.T) {
 	text := `spec:
   configurationPolicy:

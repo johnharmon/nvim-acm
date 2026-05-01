@@ -192,6 +192,20 @@ func findHelmStringRanges(text string) [][2]int {
 				i++
 				continue
 			}
+			// Skip `/* … */` go-template comments: `}}` inside the
+			// comment body must not close the surrounding expression.
+			if c == '/' && i+1 < len(text) && text[i+1] == '*' {
+				i += 2
+				for i+1 < len(text) && !(text[i] == '*' && text[i+1] == '/') {
+					i++
+				}
+				if i+1 < len(text) {
+					i += 2
+				} else {
+					i = len(text)
+				}
+				continue
+			}
 			if c == '}' && i+1 < len(text) && text[i+1] == '}' {
 				inExpr = false
 				i += 2

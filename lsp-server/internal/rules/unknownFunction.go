@@ -252,6 +252,23 @@ func findExprClose(text string, from int) int {
 			if j < n {
 				j++
 			}
+		case '/':
+			// `/* … */` go-template comment — skip the entire body so
+			// `}}` inside the comment doesn't falsely close the
+			// surrounding expression.
+			if j+1 < n && text[j+1] == '*' {
+				j += 2
+				for j+1 < n && !(text[j] == '*' && text[j+1] == '/') {
+					j++
+				}
+				if j+1 < n {
+					j += 2
+				} else {
+					return -1
+				}
+				continue
+			}
+			j++
 		case '}':
 			if j+1 < n && text[j+1] == '}' {
 				return j

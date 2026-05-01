@@ -96,6 +96,22 @@ func scanGoTemplateDelims(text string, sev protocol.DiagnosticSeverity, code pro
 			}
 			continue
 		}
+		// Inside an expression, `/* … */` is a go-template comment.
+		// Comments are opaque content — `{{` and `}}` literals inside
+		// must not affect the open/close state machine. Skip the
+		// whole comment to the `*/` terminator (or EOF if unterminated).
+		if openerOffset >= 0 && i+1 < n && c == '/' && text[i+1] == '*' {
+			i += 2
+			for i+1 < n && !(text[i] == '*' && text[i+1] == '/') {
+				i++
+			}
+			if i+1 < n {
+				i += 2 // step over `*/`
+			} else {
+				i = n
+			}
+			continue
+		}
 		if i+1 < n && c == '{' && text[i+1] == '{' {
 			if openerOffset >= 0 {
 				emit(openerOffset, openerOffset+2, `Unclosed go-template delimiter "{{" — no matching "}}".`)
