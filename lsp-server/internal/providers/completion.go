@@ -2,10 +2,12 @@ package providers
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
 	"github.com/acm-ls/lsp-server/internal/context"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 	"github.com/acm-ls/lsp-server/internal/values"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
@@ -60,7 +62,91 @@ func Provide(in CompletionInput) []protocol.CompletionItem {
 	for _, v := range vars {
 		items = append(items, valueItem(v))
 	}
+	// Variables declared `$name := …` inside the surrounding
+	// `object-templates-raw:` block scalar — visible to any expression
+	// in the same block. Skipped when the cursor isn't inside such a
+	// block, or when the catalog completion already covered the
+	// position.
+	for _, v := range blockScopedVarItems(in.Text, offset) {
+		items = append(items, v)
+	}
 	return items
+}
+
+// blockScopedVarItems returns completion items for every `$var := …`
+// declaration in the `object-templates-raw:` block scalar that contains
+// `offset`. Returns nil if the cursor isn't inside such a block.
+//
+// Per-block scope only — variables declared at chart-top (outside any
+// block scalar) aren't considered. Branch-aware scoping isn't done
+// either: a variable declared inside `{{ if … }} … {{ end }}` is
+// suggested everywhere in the block, including before the `{{ if }}`.
+// Both simplifications are documented in TODOS.md.
+func blockScopedVarItems(text string, offset int) []protocol.CompletionItem {
+	span, ok := parsedoc.ContainingObjectTemplatesRawBlock(text, offset)
+	if !ok {
+		return nil
+	}
+	body := text[span.ContentStart:span.ContentEnd]
+	decls := collectBlockVarDeclarations(body)
+	out := make([]protocol.CompletionItem, 0, len(decls))
+	seen := map[string]bool{}
+	for _, d := range decls {
+		if seen[d.name] {
+			continue
+		}
+		seen[d.name] = true
+		out = append(out, varItem(d))
+	}
+	return out
+}
+
+// blockVarDecl is a single `$name := <rhs>` declaration recovered from
+// a block-scalar body. `rhs` is the trimmed text after `:=` up to end
+// of the declaration's logical line — best-effort, used for the
+// completion item's detail line.
+type blockVarDecl struct {
+	name string
+	rhs  string
+}
+
+// blockVarDeclRE matches `$name := <anything to end of line>` with
+// optional whitespace around `:=`. RHS capture is greedy through the
+// line so pipelines like `index .x "k" | default ""` show in full.
+var blockVarDeclRE = regexp.MustCompile(`\$(\w+)\s*:=\s*([^\n]*?)\s*(?:-?\}\}|\n|$)`)
+
+func collectBlockVarDeclarations(body string) []blockVarDecl {
+	out := []blockVarDecl{}
+	for _, m := range blockVarDeclRE.FindAllStringSubmatch(body, -1) {
+		out = append(out, blockVarDecl{name: m[1], rhs: m[2]})
+	}
+	return out
+}
+
+func varItem(d blockVarDecl) protocol.CompletionItem {
+	kind := protocol.CompletionItemKindVariable
+	label := "$" + d.name
+	detail := "block-scoped variable"
+	if d.rhs != "" {
+		detail = label + " := " + truncate(d.rhs, 80)
+	}
+	doc := protocol.MarkupContent{
+		Kind:  protocol.MarkupKindMarkdown,
+		Value: fmt.Sprintf("Declared in this `object-templates-raw:` block.\n\n```go\n%s := %s\n```", label, d.rhs),
+	}
+	// `$` is in the trigger-character set; client may pass us either
+	// the full prefix `$name` or the bare `name`. FilterText/InsertText
+	// of the bare name make both cases match.
+	bare := d.name
+	return protocol.CompletionItem{
+		Label:         label,
+		Kind:          &kind,
+		Detail:        &detail,
+		Documentation: doc,
+		FilterText:    &bare,
+		InsertText:    &bare,
+		SortText:      strPtr("0-" + bare),
+	}
 }
 
 func tryValuesCompletion(in CompletionInput, offset int) ([]protocol.CompletionItem, bool) {

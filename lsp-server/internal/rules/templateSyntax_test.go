@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 	"github.com/acm-ls/lsp-server/internal/values"
 )
 
@@ -390,11 +391,11 @@ func TestFindObjectTemplatesRawBlocks_Indent(t *testing.T) {
       another: line
   other: not-included
 `
-	spans := findObjectTemplatesRawBlocks(text)
+	spans := parsedoc.FindObjectTemplatesRawBlocks(text)
 	if len(spans) != 1 {
 		t.Fatalf("want 1 span, got %d", len(spans))
 	}
-	body := text[spans[0].contentStart:spans[0].contentEnd]
+	body := text[spans[0].ContentStart:spans[0].ContentEnd]
 	if !strings.Contains(body, "data:") {
 		t.Errorf("body missing expected content: %q", body)
 	}

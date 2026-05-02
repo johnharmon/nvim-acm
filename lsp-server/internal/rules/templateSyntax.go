@@ -6,6 +6,7 @@ import (
 	"text/template/parse"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
+	"github.com/acm-ls/lsp-server/internal/parsedoc"
 	"github.com/acm-ls/lsp-server/internal/values"
 	protocol "github.com/tliron/glsp/protocol_3_16"
 )
@@ -69,26 +70,26 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 	// helm/hub passes leave the line text mostly intact (the common
 	// case for escape patterns), with a line-arithmetic fallback when
 	// no match is found.
-	emit := func(span blockScalarSpan, msgPrefix, fullErr, renderedSrc string) {
+	emit := func(span parsedoc.BlockScalarSpan, msgPrefix, fullErr, renderedSrc string) {
 		perr, ok := parseTemplateError(fullErr)
 		if !ok {
 			diagnostics = append(diagnostics, protocol.Diagnostic{
 				Range: protocol.Range{
-					Start: protocol.Position{Line: uint32(span.contentLine), Character: 0},
-					End:   protocol.Position{Line: uint32(span.contentLine), Character: 1},
+					Start: protocol.Position{Line: uint32(span.ContentLine), Character: 0},
+					End:   protocol.Position{Line: uint32(span.ContentLine), Character: 1},
 				},
 				Severity: &sev, Code: &code, Source: &source,
 				Message: msgPrefix + ": " + fullErr,
 			})
 			return
 		}
-		body := ctx.Text[span.contentStart:span.contentEnd]
+		body := ctx.Text[span.ContentStart:span.ContentEnd]
 		absLine, contextLine := mapErrLineToDocument(span, body, renderedSrc, perr.line)
 		// Clamp into block content for EOF-style errors that report a
 		// line past the last body line.
-		lastLine := span.contentLine
-		if span.contentEnd > span.contentStart {
-			lastLine = lineOfOffset(ctx.Text, span.contentEnd-1)
+		lastLine := span.ContentLine
+		if span.ContentEnd > span.ContentStart {
+			lastLine = lineOfOffset(ctx.Text, span.ContentEnd-1)
 		}
 		if absLine > lastLine {
 			absLine = lastLine
@@ -108,8 +109,8 @@ func (r templateSyntax) Run(ctx Context) []protocol.Diagnostic {
 		})
 	}
 
-	for _, span := range findObjectTemplatesRawBlocks(ctx.Text) {
-		body := ctx.Text[span.contentStart:span.contentEnd]
+	for _, span := range parsedoc.FindObjectTemplatesRawBlocks(ctx.Text) {
+		body := ctx.Text[span.ContentStart:span.ContentEnd]
 		// Variables defined at chart-top (e.g. `{{- $policyNamespace :=
 		// .Values.x -}}`) aren't visible to the parser when we parse a
 		// block scalar in isolation. Pre-scan the body for `$var`
@@ -175,110 +176,7 @@ func buildStubFuncMap(c catalog.Resolved) map[string]any {
 	return out
 }
 
-// blockScalarSpan is the byte range of a YAML literal block-scalar's
-// content (the body after the `|` indicator), recovered from the raw
-// document text with original indentation preserved so parser error
-// line numbers map directly back to document lines.
-type blockScalarSpan struct {
-	contentStart int // absolute byte offset of first content line
-	contentEnd   int // absolute byte offset just past the last content byte
-	contentLine  int // 0-indexed document line of the first content line
-}
-
-// blockKeyRE matches an `object-templates-raw:` line whose value is a
-// literal block-scalar (`|`, `|+`, `|-`, `|<digit>`, etc.). Folded
-// (`>`) variants don't appear in real ACM policies and would produce
-// different effective content (paragraph-folded), so we skip them.
-var blockKeyRE = regexp.MustCompile(`(?m)^(\s*)object-templates-raw:\s*\|[+-]?\d*\s*$`)
-
-func findObjectTemplatesRawBlocks(text string) []blockScalarSpan {
-	lines := splitDocLines(text)
-	out := []blockScalarSpan{}
-	for i, ln := range lines {
-		m := blockKeyRE.FindStringSubmatch(ln.text)
-		if m == nil {
-			continue
-		}
-		keyIndent := len(m[1])
-		if i+1 >= len(lines) {
-			continue
-		}
-		contentLine := i + 1
-		contentStart := lines[contentLine].offset
-		contentEnd := contentStart
-		j := contentLine
-		for j < len(lines) {
-			lt := lines[j]
-			if isBlankLine(lt.text) {
-				contentEnd = lt.offset + lt.totalLen
-				j++
-				continue
-			}
-			indent := leadingSpaces(lt.text)
-			if indent <= keyIndent {
-				break
-			}
-			contentEnd = lt.offset + lt.totalLen
-			j++
-		}
-		if contentEnd > contentStart {
-			out = append(out, blockScalarSpan{
-				contentStart: contentStart,
-				contentEnd:   contentEnd,
-				contentLine:  contentLine,
-			})
-		}
-	}
-	return out
-}
-
-type docLine struct {
-	offset   int    // byte offset of the line's first character
-	text     string // line content excluding any trailing line terminator
-	totalLen int    // bytes including the trailing `\n` (or `\r\n`) if present
-}
-
-func splitDocLines(text string) []docLine {
-	out := []docLine{}
-	start := 0
-	for i := 0; i < len(text); i++ {
-		if text[i] == '\n' {
-			content := text[start:i]
-			// Strip a trailing `\r` (CRLF support).
-			if len(content) > 0 && content[len(content)-1] == '\r' {
-				content = content[:len(content)-1]
-			}
-			out = append(out, docLine{offset: start, text: content, totalLen: i - start + 1})
-			start = i + 1
-		}
-	}
-	if start < len(text) {
-		content := text[start:]
-		if len(content) > 0 && content[len(content)-1] == '\r' {
-			content = content[:len(content)-1]
-		}
-		out = append(out, docLine{offset: start, text: content, totalLen: len(text) - start})
-	}
-	return out
-}
-
-func leadingSpaces(s string) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] != ' ' && s[i] != '\t' {
-			return i
-		}
-	}
-	return len(s)
-}
-
-func isBlankLine(s string) bool {
-	for i := 0; i < len(s); i++ {
-		if s[i] != ' ' && s[i] != '\t' {
-			return false
-		}
-	}
-	return true
-}
+// (Block-scalar finding lives in `parsedoc` so providers can share it.)
 
 func lineOfOffset(text string, offset int) int {
 	if offset > len(text) {
@@ -326,12 +224,12 @@ func lineLengthAt(text string, line int) int {
 //
 // Returns the absolute document line plus the rendered context line so
 // the caller can include it in the diagnostic message for user clarity.
-func mapErrLineToDocument(span blockScalarSpan, body, renderedSrc string, parserLine int) (absLine int, contextLine string) {
-	absLine = span.contentLine + (parserLine - 1)
+func mapErrLineToDocument(span parsedoc.BlockScalarSpan, body, renderedSrc string, parserLine int) (absLine int, contextLine string) {
+	absLine = span.ContentLine + (parserLine - 1)
 	if renderedSrc == "" {
 		return absLine, ""
 	}
-	renderedLines := splitDocLines(renderedSrc)
+	renderedLines := parsedoc.SplitDocLines(renderedSrc)
 	idx := parserLine - 1
 	// Parser reports line one past the body for EOF errors — clamp.
 	if idx >= len(renderedLines) && len(renderedLines) > 0 {
@@ -340,20 +238,20 @@ func mapErrLineToDocument(span blockScalarSpan, body, renderedSrc string, parser
 	if idx < 0 || idx >= len(renderedLines) {
 		return absLine, ""
 	}
-	contextLine = strings.TrimSpace(renderedLines[idx].text)
+	contextLine = strings.TrimSpace(renderedLines[idx].Text)
 	if contextLine == "" {
 		return absLine, ""
 	}
 	// Substring-match into the original body. Walk body lines, find the
 	// one that contains contextLine (or vice versa for collapses).
-	bodyLines := splitDocLines(body)
+	bodyLines := parsedoc.SplitDocLines(body)
 	for i, bl := range bodyLines {
-		bt := strings.TrimSpace(bl.text)
+		bt := strings.TrimSpace(bl.Text)
 		if bt == "" {
 			continue
 		}
 		if strings.Contains(bt, contextLine) || strings.Contains(contextLine, bt) {
-			return span.contentLine + i, contextLine
+			return span.ContentLine + i, contextLine
 		}
 	}
 	return absLine, contextLine
