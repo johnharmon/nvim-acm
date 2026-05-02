@@ -18,7 +18,7 @@ no `Co-Authored-By` trailer.
 
 ## What's already done
 
-- **9 diagnostic rules** — see `lsp-server/internal/rules/`:
+- **10 diagnostic rules** — see `lsp-server/internal/rules/`:
   - `policy-name-length` (default max 40), `policy-namespace-length`
     (default max 20), `policy-name-pattern`, `policy-name-template`
     (strict/resolve/both), `hub-forbidden-functions`,
@@ -29,6 +29,11 @@ no `Co-Authored-By` trailer.
     of helm `{{`/`}}` plus orphan detection across direct hub
     (`{{hub`/`hub}}`), hub-escape (`{{ "{{hub" }}` / `{{ "hub}}" }}`)
     and managed-escape (`{{ "{{" }}` / `{{ "}}" }}`) markers.
+  - `unclosed-parens` (default on, warning) — per-expression paren
+    balance inside `{{ … }}`. Skips strings and `{{/* … */}}`
+    comments so non-structural parens don't count. Complements
+    `template-syntax` with earlier-in-edit feedback (text/template/
+    parse will eventually surface unmatched parens too).
   - `unknown-function` (default off, warning) — flags identifiers
     not in the union of helm/hub/managed/sprig/Go-builtins; opt-in
     because catalog sprig coverage is a subset.
@@ -37,8 +42,25 @@ no `Co-Authored-By` trailer.
     actions, control-flow nesting errors, bad pipelines. All catalog
     functions plus `hub` registered as no-op stubs so the parser
     accepts legitimate ACM calls and the direct hub form
-    `{{hub fn args hub}}` parses cleanly. Helm-level only —
-    no pre-render, no managed-rendered body validation.
+    `{{hub fn args hub}}` parses cleanly. Recognizes `{{/* … */}}`
+    comments (multi-line, with literal braces inside) as opaque.
+    Variables defined at chart-top get phantom declarations
+    prepended (`bodyWithPhantomVars`) before parsing so legitimate
+    `$var` references inside a block scalar don't show as undefined.
+    Two opt-in modes:
+      * `layered = true` — Phase A render-chain across helm → hub →
+        managed via `text/template.Execute`. Helm stage parses +
+        executes against a chart-values data context (Phase B.1
+        pre-populates referenced field-access paths so chained
+        missing keys don't nil-pointer); hub stage parses with
+        custom `{{hub`/`hub}}` delims and executes; managed stage
+        parses with standard delims on stage-2 output. Substring-
+        based source mapping (Phase A.4) translates stage-2/3
+        parse-error lines back to original-document positions.
+      * `typedStubs = true` — Phase B.2 catalog-typed stubs via
+        `reflect.MakeFunc`. Wrong arity / wrong literal type
+        surfaces as Execute error. Catalog entries without
+        declared types fall back to permissive untyped stubs.
 - **Completion, hover, signature help** — layer-aware (helm/hub/managed)
   reading from ACM 2.15 catalog plus Go-builtins, sprig, helm function
   lists. `.Values.*` drilling into chart `values.yaml` with overlay
@@ -84,7 +106,7 @@ nvim-acm/
 │       ├── parsedoc/              # YAML kind/name + LSP range
 │       ├── context/               # detector.go, hubspans.go, acmcontext.go
 │       ├── values/                # chartvalues, compose, templaterender, pathparser
-│       ├── rules/                 # 9 diagnostic rules
+│       ├── rules/                 # 10 diagnostic rules
 │       ├── providers/             # completion, hover, signaturehelp, semantictokens
 │       └── server/server.go       # glsp wiring
 ├── lua/acm-ls/                    # init.lua (setup), treesitter.lua (parser check)
@@ -153,11 +175,35 @@ Inside Neovim after a binary rebuild:
   can read paths like `rules.<id>.*` and `acm.version` directly.
   Don't undo that strip — the wrapper is the client-side shape, the
   unwrapped form is the rule-side contract.
+- **Block-scalar isolation in template-syntax** — each
+  `object-templates-raw:` block is parsed in isolation. The parser
+  doesn't see chart-top variable declarations, so
+  `bodyWithPhantomVars` in `internal/rules/templateSyntax.go`
+  prepends `{{- $name := "" -}}` for every `$var` referenced but
+  not declared inside the block. Trim markers keep the prepended
+  text invisible (line numbers preserved). Locally-declared vars
+  are detected and not given phantoms (`:=` would re-declare).
+- **Comment skipping** — every scanner that walks expression
+  interiors (`scanGoTemplateDelims`, `findExprClose`,
+  `findExpressionSpans`, `findHelmStringRanges`) recognizes
+  `{{/* … */}}` comments as opaque so `{{`/`}}` literals inside a
+  comment body don't trip state machines. Adding a new scanner?
+  Mirror the comment-skip case the others use.
+- **Enterprise CI gate defaults** — `policy-name-length.maxLength`
+  defaults to 40 and `policy-namespace-length.maxLength` defaults
+  to 20 to match common enterprise gates (where the policy name
+  plus a managed-cluster suffix has to fit a downstream
+  Kubernetes object-name limit). Both are configurable; don't
+  raise the default to 63 (Kubernetes max) without a real reason —
+  the lower defaults catch problems at chart-edit time rather
+  than at deploy time.
 
 ## Pending / parked
 
-- Real Neovim end-to-end testing in production usage (user just started
-  using it).
+- Real Neovim end-to-end testing in production usage (in progress —
+  enterprise chart at `~/git-projects/autoshiftv2/policies/`).
+- Phase B.3 (variable type inference for `.Values.*` accesses) and
+  Phase B.4 (cross-stage type continuity) — see TODOS.md.
 - Possibly add `:AcmSync` user command to push catalog changes if
   catalog editing becomes frequent.
 

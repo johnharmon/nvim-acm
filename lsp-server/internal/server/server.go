@@ -62,6 +62,7 @@ func New(cfg Config) *Server {
 			rules.HubForbiddenFunctions,
 			rules.LookupDefaultDict,
 			rules.UnclosedDelimiters,
+			rules.UnclosedParens,
 			rules.NewUnknownFunction(loader),
 			rules.NewTemplateSyntax(loader, cache),
 		},

@@ -659,3 +659,22 @@ part of recent work:
   commands (`AcmRestart`/`Stop`/`Status`), binary name, Go module
   path, env var, settings root key, diagnostic source, vim global,
   treesitter query header comments. Commit `064757c`.
+- **Enterprise CI gate defaults** — `policy-name-length.maxLength`
+  default 63 → 40 and new `policy-namespace-length` rule with
+  default 20. Both configurable via existing `maxLength` setting.
+  `parsedoc.ParsedDoc` extended with `Namespace` / `NamespaceNode`
+  fields. Commit `bf9885b`.
+- **go-template comment recognition** — every scanner that walks
+  expression interiors now skips `{{/* … */}}` comment bodies as
+  opaque. Multi-line comments and comments containing `{{`/`}}`
+  literals no longer trip the unclosed-delimiters state machine,
+  the unknown-function expression walker, the semantic-token span
+  finder, or the hub-marker false-match filter. Commit `fa869bd`.
+- **Phantom variable declarations** — `bodyWithPhantomVars` in
+  `templateSyntax.go` prepends `{{- $var := "" -}}` to each
+  block-scalar body for every `$var` referenced but not declared
+  inside it. Solves the false-positive where chart-top
+  `{{- $policyNamespace := .Values.x -}}` declarations weren't
+  visible to the parser when parsing a single block scalar in
+  isolation, surfacing legitimate `{{ $policyNamespace }}` uses
+  as `undefined variable`. Commit `fa869bd`.

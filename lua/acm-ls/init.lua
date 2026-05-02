@@ -59,6 +59,12 @@ local default_config = {
         ["hub-forbidden-functions"] = { enabled = true, severity = "error" },
         ["lookup-default-dict"] = { enabled = true, severity = "warning" },
         ["unclosed-delimiters"] = { enabled = true, severity = "error" },
+        -- Per-expression paren balance inside `{{ … }}`. Skips strings
+        -- and `/* … */` comments so parens that aren't structural don't
+        -- count. Complements template-syntax — text/template/parse
+        -- catches paren mismatches at parse time, but earlier-in-edit
+        -- feedback is more useful for live authoring.
+        ["unclosed-parens"] = { enabled = true, severity = "warning" },
         -- Default off: catalog sprig coverage is intentionally a subset,
         -- so false positives are non-zero. Opt in once you've confirmed
         -- your chart's sprig usage is in the catalog, or extend via

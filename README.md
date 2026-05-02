@@ -13,7 +13,7 @@ Neovim plugin can ship and version independently.
 
 | Feature | LSP method | Implementation |
 |---|---|---|
-| Diagnostics (9 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
+| Diagnostics (10 rules) | `textDocument/publishDiagnostics` | `lsp-server/internal/rules/` |
 | Completion | `textDocument/completion` | `lsp-server/internal/providers/completion.go` |
 | Hover | `textDocument/hover` | `lsp-server/internal/providers/hover.go` |
 | Signature help | `textDocument/signatureHelp` | `lsp-server/internal/providers/signaturehelp.go` |
@@ -32,8 +32,9 @@ Neovim plugin can ship and version independently.
 | `hub-forbidden-functions` | on | error | Use of functions that aren't valid in hub-template context (`trimPrefix`, `trimSuffix`, …). |
 | `lookup-default-dict` | on | warning | `lookup` calls without a `\| default dict ""` fallback that would crash at policy-eval time when the resource is missing. |
 | `unclosed-delimiters` | on | error | Unbalanced `{{` / `}}`, plus orphan markers across four layers: helm-level, direct hub `{{hub`/`hub}}`, hub-escape `{{ "{{hub" }}` / `{{ "hub}}" }}`, and managed-escape `{{ "{{" }}` / `{{ "}}" }}`. |
+| `unclosed-parens` | on | warning | Per-expression paren balance inside `{{ … }}`. String literals and `{{/* … */}}` comments are skipped so non-structural parens don't count. Complements `template-syntax` with earlier-in-edit feedback. |
 | `unknown-function` | off | warning | Function-call identifiers in any layer that aren't in the loaded catalog (helm + hub + managed + sprig + Go-builtins). Default off because the shipped sprig coverage is intentionally a subset; opt in once your chart's sprig usage is in the catalog or extend with `rules.unknown-function.allowedFunctions`. |
-| `template-syntax` | on | warning | Per-`object-templates-raw:` block-scalar Go-template parse via `text/template/parse` (the parser helm itself uses). Catches malformed actions, control-flow nesting errors, bad pipelines, mismatched parens. All catalog functions plus `hub` are registered as no-op stubs so legitimate ACM calls don't appear undefined. Doesn't validate variable paths (`.Values.x` is opaque) or function arity. Helm-level only — managed-side template body that emerges after rendering isn't separately parsed. |
+| `template-syntax` | on | warning | Per-`object-templates-raw:` block-scalar Go-template parse via `text/template/parse` (the parser helm itself uses). Catches malformed actions, control-flow nesting errors, bad pipelines, mismatched parens. All catalog functions plus `hub` are registered as no-op stubs so legitimate ACM calls don't appear undefined. Recognizes `{{/* … */}}` comments (single- and multi-line) as opaque. Variables defined at chart-top (`{{- $var := … -}}` outside the block scalar) get phantom declarations prepended before parsing so legitimate references inside the block don't surface as "undefined variable". Two opt-in modes: `layered = true` runs a render-chain across helm/hub/managed layers (catches errors visible only after helm renders); `typedStubs = true` builds catalog-typed stub signatures via `reflect.MakeFunc` so wrong arity or incompatible literal types surface during render. |
 
 ### Semantic highlighting layers
 
@@ -99,7 +100,7 @@ nvim-acm/                          # standard nvim plugin layout
 │       │                          #   hub-span finder, ACM-context check
 │       ├── values/                # values.yaml parser, overlays merge,
 │       │                          #   .Values.* path parser, mini renderer
-│       ├── rules/                 # 9 diagnostic rule implementations
+│       ├── rules/                 # 10 diagnostic rule implementations
 │       ├── providers/             # completion, hover, signature, sem-tokens
 │       └── server/                # glsp wiring + stateful per-document handlers
 ├── lua/acm-ls/
@@ -207,8 +208,14 @@ settings = {
       ["hub-forbidden-functions"] = { enabled = true, severity = "error" },
       ["lookup-default-dict"]     = { enabled = true, severity = "warning" },
       ["unclosed-delimiters"]     = { enabled = true, severity = "error" },
+      ["unclosed-parens"]         = { enabled = true, severity = "warning" },
       ["unknown-function"]        = { enabled = false, severity = "warning", allowedFunctions = {} },
-      ["template-syntax"]         = { enabled = true, severity = "warning" },
+      ["template-syntax"]         = {
+        enabled    = true,
+        severity   = "warning",
+        layered    = false,  -- Phase A: helm → hub → managed parse-chain
+        typedStubs = false,  -- Phase B.2: catalog-signature arity/type checking
+      },
     },
     values = {
       overlayFiles = {},  -- workspace-relative paths layered on top of chart values
@@ -387,6 +394,65 @@ After running `scripts/install-nvim.sh`, open a policy YAML in nvim:
 :Inspect                         " (Neovim 0.10+) shows semantic-token info
 :LspLog                          " stderr from the server (parse errors, etc.)
 ```
+
+## Limitations and known patterns
+
+### Block-scalar parsing scope
+
+The `template-syntax` rule parses each `object-templates-raw:` block
+scalar in **isolation** — it does not see the surrounding chart
+structure (other YAML keys, sibling templates, the chart's
+`Chart.yaml`, etc.). This keeps each diagnostic focused on the block
+the user is editing, but means the parser doesn't have the chart-top
+context out of the box. Two specific accommodations:
+
+- **Chart-top variable declarations** (`{{- $policyNamespace :=
+  .Values.x -}}` at the document top) — phantom declarations are
+  prepended to each block-scalar body before parsing so `$var`
+  references inside the block don't surface as "undefined variable".
+  Variables declared within the block itself are detected and not
+  given phantoms (avoids the parser's no-redeclaration rule).
+- **Chart-derived `.Values.*` data** — the `layered` mode reads the
+  chart's `values.yaml` plus any `acm.values.overlayFiles` and
+  pre-populates intermediate paths via Phase B.1 access-path
+  collection so chained navigation (`.Values.foo.bar.baz`) doesn't
+  nil-pointer Execute.
+
+### Layer scope
+
+Default behavior is **helm-layer parse only**. `layered = true`
+unlocks the three-stage render-chain (Phase A.1–A.4) which catches
+syntax errors at all three layers (helm → hub → managed). Defaults
+off because real-world templates routinely access values that
+aren't always defined, and the render chain currently silently
+skips stage 2/3 when stage 1 Execute fails — Phase B work is
+making that more robust.
+
+### Comment recognition
+
+`{{/* … */}}` go-template comments (including multi-line bodies and
+bodies containing `{{`/`}}` literals) are recognized by every
+expression-interior scanner: the unclosed-delimiters state machine,
+unknown-function's expression walker, semantic-token span detection,
+and the hub-marker false-match filter. Trim-marker comments
+(`{{- /* … */ -}}`) work too.
+
+### Things the rule does **not** check (yet)
+
+- **Variable type compatibility** — `$x := <dict>` then passed to
+  something that expects a string is a Phase B.3/B.4 problem
+  (cross-stage type continuity). The variable-inference machinery
+  isn't there yet.
+- **Function arity for catalog-incomplete entries** — `typedStubs =
+  true` only catches arity/type mismatches when the catalog declares
+  full `params` and `returns.type`. Functions without complete
+  signatures fall back to permissive untyped stubs.
+- **Cross-document references** (e.g., `PlacementBinding.placementRef.name`
+  pointing at a non-existent `Placement`) — needs a workspace-wide
+  index, tracked in `TODOS.md`.
+- **Real helm rendering** with actual cluster lookups — the
+  `lookup` family of functions is stubbed; the LSP is a static
+  analyzer, not a renderer.
 
 ## Treesitter injection — why it matters
 
