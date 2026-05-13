@@ -367,6 +367,39 @@ func TestTemplateSyntax_VariableDeclaredInBody_NoPhantomCollision(t *testing.T) 
 	}
 }
 
+func TestTemplateSyntax_HelmActionRefInsideAcmEscape_NoFalseUndefined(t *testing.T) {
+	// Real-chart pattern: `$policyNamespace` is declared inside a
+	// managed-escape body (which is raw text from the helm parser's
+	// view) and is referenced inside an embedded helm action also
+	// inside that body. The textual `:=` doesn't declare anything in
+	// helm scope, so the phantom-var pass must still inject a top-of-
+	// template declaration to keep the parser from flagging the
+	// helm-action `{{ $policyNamespace }}` as undefined.
+	r := NewTemplateSyntax(miniTemplateResolver(), values.NewCache())
+	text := `spec:
+  object-templates-raw: |
+    {{ "{{" }} $policyNamespace := "{{ "{{hub" }} (index .ManagedClusterLabels "{{ $.Values.x | default "autoshift.io/" }}policy-namespace") | default "{{ $policyNamespace }}" {{ "hub}}" }}" {{ "}}" }}
+`
+	diags := r.Run(Context{Text: text, Settings: enabledTemplateSyntaxSettings()})
+	for _, d := range diags {
+		if strings.Contains(d.Message, "undefined variable") {
+			t.Errorf("variable declared by ACM escape pattern should not trip undefined-variable: %+v", d)
+		}
+	}
+}
+
+func TestBodyWithPhantomVars_DeclarationOnlyCountsInsideActions(t *testing.T) {
+	// `$x := …` in raw text (outside `{{ … }}`) is not visible to the
+	// helm parser, so the phantom-prepender must still emit a
+	// declaration for `$x` even though it textually appears as a
+	// declaration in the body.
+	body := `text $x := "raw" more {{ $x }}`
+	got := bodyWithPhantomVars(body)
+	if !strings.Contains(got, `$x := ""`) {
+		t.Errorf("expected phantom for $x even though `$x := ...` appears in raw text; got: %q", got)
+	}
+}
+
 func TestBodyWithPhantomVars_OnlyPrependsUndeclared(t *testing.T) {
 	body := `{{- $local := "x" -}}{{ $local }} {{ $external }} {{ $alsoExternal }}`
 	got := bodyWithPhantomVars(body)

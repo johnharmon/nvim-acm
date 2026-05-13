@@ -269,28 +269,47 @@ var varRefRE = regexp.MustCompile(`\$(\w+)`)
 
 // bodyWithPhantomVars returns the body prefixed with `{{- $name := ""
 // -}}` declarations for every `$name` referenced in the body but not
-// declared inside it. This makes text/template/parse's scope check
-// accept block scalars that reference variables defined at chart-top
+// declared inside a helm-visible action body. This makes
+// text/template/parse's scope check accept block scalars that
+// reference variables defined at chart-top
 // (`{{- $policyNamespace := .Values.policy_namespace -}}` outside any
-// `object-templates-raw:` block).
+// `object-templates-raw:` block), AND variables that are nominally
+// declared inside ACM escape patterns — those declarations live in
+// what helm sees as raw text between `{{ "{{" }}` and `{{ "}}" }}`,
+// not in a helm action body, so the helm parser is blind to them.
+// Without this scoping, a single embedded helm action like
+// `{{ $policyNamespace }}` next to `{{ "{{" }} $policyNamespace :=
+// … {{ "}}" }}` would fire a spurious "undefined variable" since the
+// declaration isn't in any actual `{{ … }}` action.
 //
 // The prepended declarations use trim markers (`{{- … -}}`) so they
 // don't introduce visible whitespace or newlines — line numbers in
 // the augmented body match the original 1:1, so parser-error line
 // reports map back to the user's source positions cleanly.
-//
-// False positives are bounded: variables matching `$word` inside
-// string literals or YAML scalars also get phantom declarations,
-// which is harmless. False negatives only occur if the catalog or
-// users introduce a variable form we don't recognize as `$word`.
 func bodyWithPhantomVars(body string) string {
+	// Only declarations inside an actual `{{ … }}` action body count —
+	// that's the only place the helm parser tracks variable scope.
+	// `$x := …` in raw text (e.g. inside an ACM managed-escape body)
+	// looks like a declaration to a textual regex but is invisible to
+	// the parser, so treating it as "already declared" would suppress
+	// the phantom and let the parser error on legitimate refs.
 	declared := map[string]bool{}
-	for _, m := range varDeclRE.FindAllStringSubmatch(body, -1) {
-		declared[m[1]] = true
+	for _, sp := range findExpressionInners(body) {
+		interior := body[sp.start:sp.end]
+		for _, m := range varDeclRE.FindAllStringSubmatch(interior, -1) {
+			declared[m[1]] = true
+		}
 	}
+	// Same restriction for references: an unparsed `$x` in raw text is
+	// just text and doesn't need a phantom. Phantoms only matter for
+	// `$x` tokens the parser will actually try to resolve, which means
+	// the ones inside `{{ … }}` action bodies.
 	used := map[string]bool{}
-	for _, m := range varRefRE.FindAllStringSubmatch(body, -1) {
-		used[m[1]] = true
+	for _, sp := range findExpressionInners(body) {
+		interior := body[sp.start:sp.end]
+		for _, m := range varRefRE.FindAllStringSubmatch(interior, -1) {
+			used[m[1]] = true
+		}
 	}
 	var prefix strings.Builder
 	for name := range used {
