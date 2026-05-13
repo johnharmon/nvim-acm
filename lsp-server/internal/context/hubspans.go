@@ -23,17 +23,21 @@ const (
 var (
 	directOpen  = regexp.MustCompile(`\{\{-?\s*hub\b`)
 	directClose = regexp.MustCompile(`-?\s*hub\s*-?\}\}`)
-	// Whole first escape expression: {{ "{{hub" }} or with trim markers.
-	escapedOpen = regexp.MustCompile(`\{\{-?\s*"\{\{hub-?"\s*-?\}\}`)
-	// Whole second escape expression: {{ "hub}}" }}.
-	escapedClose = regexp.MustCompile(`\{\{-?\s*"-?hub\}\}"\s*-?\}\}`)
+	// Whole first escape expression: `{{ "{{hub" }}` or with trim
+	// markers. Either kind of go-template string literal is accepted —
+	// the standard `"…"` form and the backtick raw-string form `` `…` ``
+	// — since Helm renders the action body to the literal's value
+	// either way.
+	escapedOpen = regexp.MustCompile(`\{\{-?\s*[\x60"]\{\{hub-?[\x60"]\s*-?\}\}`)
+	// Whole second escape expression: `{{ "hub}}" }}`.
+	escapedClose = regexp.MustCompile(`\{\{-?\s*[\x60"]-?hub\}\}[\x60"]\s*-?\}\}`)
 
 	// Managed-cluster-side escape expressions, structurally identical to the
 	// hub versions but without the "hub" keyword. Together they emit literal
 	// `{{ ... }}` after Helm renders, which the managed-cluster ACM controller
 	// processes at policy-evaluation time.
-	managedEscapedOpen  = regexp.MustCompile(`\{\{-?\s*"\{\{-?"\s*-?\}\}`)
-	managedEscapedClose = regexp.MustCompile(`\{\{-?\s*"-?\}\}"\s*-?\}\}`)
+	managedEscapedOpen  = regexp.MustCompile(`\{\{-?\s*[\x60"]\{\{-?[\x60"]\s*-?\}\}`)
+	managedEscapedClose = regexp.MustCompile(`\{\{-?\s*[\x60"]-?\}\}[\x60"]\s*-?\}\}`)
 )
 
 // FindHubSpans returns all hub-template content regions in the text.

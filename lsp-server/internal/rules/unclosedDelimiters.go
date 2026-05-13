@@ -161,15 +161,15 @@ var (
 		skipInString:   true,
 	}
 	hubEscapePair = markerPair{
-		openRE:         regexp.MustCompile(`\{\{-?\s*"\{\{hub-?"\s*-?\}\}`),
-		closeRE:        regexp.MustCompile(`\{\{-?\s*"-?hub\}\}"\s*-?\}\}`),
+		openRE:         regexp.MustCompile(`\{\{-?\s*[\x60"]\{\{hub-?[\x60"]\s*-?\}\}`),
+		closeRE:        regexp.MustCompile(`\{\{-?\s*[\x60"]-?hub\}\}[\x60"]\s*-?\}\}`),
 		openOrphanMsg:  `Hub-escape opener {{ "{{hub" }} has no matching {{ "hub}}" }} closer.`,
 		closeOrphanMsg: `Hub-escape closer {{ "hub}}" }} has no matching {{ "{{hub" }} opener.`,
 		skipInString:   false,
 	}
 	managedEscapePair = markerPair{
-		openRE:         regexp.MustCompile(`\{\{-?\s*"\{\{-?"\s*-?\}\}`),
-		closeRE:        regexp.MustCompile(`\{\{-?\s*"-?\}\}"\s*-?\}\}`),
+		openRE:         regexp.MustCompile(`\{\{-?\s*[\x60"]\{\{-?[\x60"]\s*-?\}\}`),
+		closeRE:        regexp.MustCompile(`\{\{-?\s*[\x60"]-?\}\}[\x60"]\s*-?\}\}`),
 		openOrphanMsg:  `Managed-escape opener {{ "{{" }} has no matching {{ "}}" }} closer.`,
 		closeOrphanMsg: `Managed-escape closer {{ "}}" }} has no matching {{ "{{" }} opener.`,
 		skipInString:   false,

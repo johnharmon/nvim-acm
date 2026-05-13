@@ -221,8 +221,8 @@ var hubKeywordPatterns = []struct {
 }{
 	{regexp.MustCompile(`\{\{-?\s*(hub)\b`), 1},
 	{regexp.MustCompile(`\b(hub)\s*-?\}\}`), 1},
-	{regexp.MustCompile(`\{\{-?\s*"\{\{(hub)\b`), 1},
-	{regexp.MustCompile(`\b(hub)\}\}"`), 1},
+	{regexp.MustCompile(`\{\{-?\s*[\x60"]\{\{(hub)\b`), 1},
+	{regexp.MustCompile(`\b(hub)\}\}[\x60"]`), 1},
 }
 
 // appendStringInnerDelims tags `{{`/`{{-` and `}}`/`-}}` runs that sit at the

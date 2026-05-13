@@ -162,6 +162,26 @@ func TestUnclosedDelimiters_OrphanManagedEscapeCloser(t *testing.T) {
 	}
 }
 
+func TestUnclosedDelimiters_BalancedManagedEscape_Backtick(t *testing.T) {
+	// Same as TestUnclosedDelimiters_BalancedManagedEscape but using
+	// backtick raw-string literals in the escape forms — Helm renders
+	// them to the same value as `"..."` so the diagnostic must treat
+	// the two as equivalent.
+	text := "{{ `{{` }} $myValue := \"test\" {{ `}}` }}"
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced backtick managed-escape should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedDelimiters_BalancedHubEscape_Backtick(t *testing.T) {
+	text := "{{ `{{hub` }} fromSecret \"a\" \"b\" \"c\" {{ `hub}}` }}"
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced backtick hub-escape should produce no diagnostics, got: %+v", diags)
+	}
+}
+
 func TestUnclosedDelimiters_OrphanHubEscapePair(t *testing.T) {
 	// Hub-escape opener with no matching closer.
 	text := `prefix {{ "{{hub" }} body without closer`

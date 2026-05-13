@@ -78,6 +78,69 @@ func TestUnclosedParens_PerSpanScope(t *testing.T) {
 	}
 }
 
+func TestUnclosedParens_ManagedEscapeBodyUnclosed(t *testing.T) {
+	// `{{ "{{" }} … {{ "}}" }}` body is parsed by the managed-cluster
+	// controller after helm renders. Unmatched parens in there should
+	// surface even though the body sits outside any helm `{{ … }}`.
+	text := `key: '{{ "{{" }} mul ((a b) {{ "}}" }}'`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 unclosed-`(` from managed-escape body, got %d: %+v", len(diags), diags)
+	}
+	if !strings.Contains(diags[0].Message, `Unclosed "("`) {
+		t.Errorf("unexpected message: %q", diags[0].Message)
+	}
+}
+
+func TestUnclosedParens_ManagedEscapeBodyBalanced(t *testing.T) {
+	text := `key: '{{ "{{" }} mul (a b) {{ "}}" }}'`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("balanced parens in managed-escape body should produce no diagnostics, got: %+v", diags)
+	}
+}
+
+func TestUnclosedParens_HubEscapeBodyUnclosed(t *testing.T) {
+	text := `key: '{{ "{{hub" }} fromConfigMap (lookup "ns" "n" "x" {{ "hub}}" }}'`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 unclosed-`(` from hub-escape body, got %d: %+v", len(diags), diags)
+	}
+	if !strings.Contains(diags[0].Message, `Unclosed "("`) {
+		t.Errorf("unexpected message: %q", diags[0].Message)
+	}
+}
+
+func TestUnclosedParens_ManagedEscapeBackticked(t *testing.T) {
+	// Backtick raw-string variant of the escape form — Helm renders to
+	// the same runtime `{{` / `}}` as the `"..."` form, so the rule
+	// must walk the body content the same way.
+	text := "key: '{{ `{{` }} mul ((a b) {{ `}}` }}'"
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 unclosed-`(` from backtick managed-escape body, got %d: %+v", len(diags), diags)
+	}
+}
+
+func TestUnclosedParens_HubEscapeBackticked(t *testing.T) {
+	text := "key: '{{ `{{hub` }} fromConfigMap (lookup \"ns\" \"n\" \"x\" {{ `hub}}` }}'"
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Fatalf("want 1 unclosed-`(` from backtick hub-escape body, got %d: %+v", len(diags), diags)
+	}
+}
+
+func TestUnclosedParens_NoDoubleCountOnNestedHelmInEscape(t *testing.T) {
+	// Helm action inside a managed-escape body has its own unmatched
+	// `(`. The helm-level pass should report it once; the managed-body
+	// pass must not report the same paren a second time.
+	text := `key: '{{ "{{" }} a {{ printf (b }} {{ "}}" }}'`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 1 {
+		t.Errorf("want exactly 1 diagnostic (no double-count), got %d: %+v", len(diags), diags)
+	}
+}
+
 func TestUnclosedParens_DisabledByConfig(t *testing.T) {
 	text := `key: '{{ ( }}'`
 	settings := Settings{
