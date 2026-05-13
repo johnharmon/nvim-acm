@@ -1,6 +1,9 @@
 package context
 
-import "regexp"
+import (
+	"regexp"
+	"sort"
+)
 
 // HubSpan delimits the content portion of an ACM hub-template region.
 // Direct: `{{hub ... hub}}` — content lives between contentStart and contentEnd.
@@ -41,6 +44,14 @@ var (
 )
 
 // FindHubSpans returns all hub-template content regions in the text.
+// Escape pairs are matched as a stack: nested
+// `{{ "{{hub" }} … {{ "{{hub" }} INNER {{ "hub}}" }} … {{ "hub}}" }}`
+// forms yield both the outer and inner spans, with each open matched to
+// its most-recently-opened, still-unclosed counterpart. Naive greedy
+// pairing (first close after each open) would mis-pair the outer open
+// with the inner close, truncating the outer span at the inner close
+// and hiding everything after the inner close from layer detection /
+// rule scans.
 func FindHubSpans(text string) []HubSpan {
 	stringRanges := findHelmStringRanges(text)
 	spans := []HubSpan{}
@@ -56,16 +67,50 @@ func FindHubSpans(text string) []HubSpan {
 		spans = append(spans, HubSpan{ContentStart: m[1], ContentEnd: closer, Kind: SpanDirect})
 	}
 
-	for _, m := range escapedOpen.FindAllStringIndex(text, -1) {
-		closer := findEscapedCloser(text, m[1])
-		if closer == -1 {
-			continue
-		}
-		spans = append(spans, HubSpan{ContentStart: m[1], ContentEnd: closer, Kind: SpanEscaped})
-	}
+	spans = append(spans, pairEscapeSpans(text, escapedOpen, escapedClose, SpanEscaped)...)
 
 	sortSpansByStart(spans)
 	return dedupeNested(spans)
+}
+
+// pairEscapeSpans walks all open/close matches of `openRE`/`closeRE` in
+// document order and pairs them as a balanced-bracket stack. Each open
+// pushes its body-start (the byte just past `}}`) onto the stack; each
+// close pops the most recent open and emits one span. Unmatched closes
+// (no open on the stack) are dropped; unmatched opens (stack non-empty
+// at EOF) are dropped — matching the existing "no span if no closer"
+// semantic for malformed input.
+func pairEscapeSpans(text string, openRE, closeRE *regexp.Regexp, kind SpanKind) []HubSpan {
+	type marker struct {
+		isOpen    bool
+		bodyStart int // for open: index just past `}}`
+		bodyEnd   int // for close: index of opening `{{`
+		sortAt    int
+	}
+	markers := []marker{}
+	for _, m := range openRE.FindAllStringIndex(text, -1) {
+		markers = append(markers, marker{isOpen: true, bodyStart: m[1], sortAt: m[0]})
+	}
+	for _, m := range closeRE.FindAllStringIndex(text, -1) {
+		markers = append(markers, marker{isOpen: false, bodyEnd: m[0], sortAt: m[0]})
+	}
+	sort.Slice(markers, func(i, j int) bool { return markers[i].sortAt < markers[j].sortAt })
+
+	stack := []int{}
+	out := []HubSpan{}
+	for _, mk := range markers {
+		if mk.isOpen {
+			stack = append(stack, mk.bodyStart)
+			continue
+		}
+		if len(stack) == 0 {
+			continue
+		}
+		openBody := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		out = append(out, HubSpan{ContentStart: openBody, ContentEnd: mk.bodyEnd, Kind: kind})
+	}
+	return out
 }
 
 // IsInsideAnyHubSpan reports whether offset lies within any hub-span content.
@@ -89,16 +134,16 @@ type ManagedSpan struct {
 
 // FindManagedSpans returns all managed-template content regions in the text.
 // Spans nested inside hub spans are suppressed so the same content isn't
-// processed twice.
+// processed twice. Pairing uses the same stack-based algorithm as hub
+// escapes so legitimately nested
+// `{{ "{{" }} … {{ "{{" }} INNER {{ "}}" }} … {{ "}}" }}` forms are
+// resolved correctly.
 func FindManagedSpans(text string) []ManagedSpan {
 	hubSpans := FindHubSpans(text)
 	out := []ManagedSpan{}
-	for _, m := range managedEscapedOpen.FindAllStringIndex(text, -1) {
-		closer := findManagedEscapedCloser(text, m[1])
-		if closer == -1 {
-			continue
-		}
-		span := ManagedSpan{ContentStart: m[1], ContentEnd: closer}
+	paired := pairEscapeSpans(text, managedEscapedOpen, managedEscapedClose, SpanEscaped)
+	for _, h := range paired {
+		span := ManagedSpan{ContentStart: h.ContentStart, ContentEnd: h.ContentEnd}
 		if isManagedSpanInsideHub(hubSpans, span) {
 			continue
 		}
@@ -246,9 +291,15 @@ func sortSpansByStart(spans []HubSpan) {
 // dedupeNested suppresses direct spans whose content starts inside an
 // escaped span's content range — those direct matches came from the inner
 // {{hub literal of an escaped form, not real direct hub expressions.
+// Nested escape spans (one escape span inside another) are kept — both
+// are real hub-template regions at different scopes.
 func dedupeNested(spans []HubSpan) []HubSpan {
 	kept := []HubSpan{}
 	for _, s := range spans {
+		if s.Kind != SpanDirect {
+			kept = append(kept, s)
+			continue
+		}
 		nested := false
 		for _, k := range kept {
 			if k.Kind == SpanEscaped && s.ContentStart >= k.ContentStart && s.ContentEnd <= k.ContentEnd {

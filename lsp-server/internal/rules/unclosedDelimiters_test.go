@@ -182,6 +182,30 @@ func TestUnclosedDelimiters_BalancedHubEscape_Backtick(t *testing.T) {
 	}
 }
 
+func TestUnclosedDelimiters_NestedEscapePairs(t *testing.T) {
+	// Real-chart pattern: outer escape pair whose body contains an
+	// inner escape pair. Stack-aware pairing should resolve both with
+	// zero diagnostics; a flat single-slot state machine would
+	// misreport the inner pair as orphaning the outer opener.
+	text := `key: '{{ "{{hub" }} a {{ "{{hub" }} inner {{ "hub}}" }} b {{ "hub}}" }}'`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	for _, d := range diags {
+		if strings.Contains(d.Message, "Hub-escape") {
+			t.Errorf("nested hub-escape pairs should not produce a Hub-escape diagnostic, got: %+v", d)
+		}
+	}
+}
+
+func TestUnclosedDelimiters_NestedManagedEscapePairs(t *testing.T) {
+	text := `key: '{{ "{{" }} a {{ "{{" }} inner {{ "}}" }} b {{ "}}" }}'`
+	diags := unclosedDelimiters{}.Run(Context{Text: text, Settings: Settings{}})
+	for _, d := range diags {
+		if strings.Contains(d.Message, "Managed-escape") {
+			t.Errorf("nested managed-escape pairs should not produce a Managed-escape diagnostic, got: %+v", d)
+		}
+	}
+}
+
 func TestUnclosedDelimiters_OrphanHubEscapePair(t *testing.T) {
 	// Hub-escape opener with no matching closer.
 	text := `prefix {{ "{{hub" }} body without closer`

@@ -17,6 +17,7 @@ func TestFindHubSpans(t *testing.T) {
 		{"direct opener inside string literal is ignored", `foo: {{ "{{hub x hub}}" }}`, 0},
 		{"escaped hub backtick raw-string form", "{{ `{{hub` }} fromSecret \"a\" {{ `hub}}` }}", 1},
 		{"escaped hub mixed quote types open backtick close double", "{{ `{{hub` }} fromSecret \"a\" {{ \"hub}}\" }}", 1},
+		{"nested hub escape pairs both kept", `{{ "{{hub" }} a {{ "{{hub" }} inner {{ "hub}}" }} b {{ "hub}}" }}`, 2},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -130,6 +130,30 @@ func TestUnclosedParens_HubEscapeBackticked(t *testing.T) {
 	}
 }
 
+func TestUnclosedParens_StringContainsEmbeddedHelmAction(t *testing.T) {
+	// Inside a hub-escape body, a hub-level string `"…"` whose body
+	// contains a helm `{{ … }}` action must not have its closing quote
+	// mis-identified as one of the helm action's own string-literal
+	// quotes. The action's content is opaque from the source view.
+	text := `key: '{{ "{{hub" }} (index .ManagedClusterLabels "{{ $.Values.autoshiftLabelPrefix | default "autoshift.io/" }}policy-namespace") {{ "hub}}" }}'`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("strings with embedded helm actions inside an escape body should not produce diagnostics, got %d:\n%+v", len(diags), diags)
+	}
+}
+
+func TestUnclosedParens_NestedHubEscapePairs(t *testing.T) {
+	// Real-chart pattern: an outer hub-escape pair whose body contains
+	// an inner hub-escape pair as one argument. Both pairs must be
+	// resolved (stack-aware pairing) so the outer body scan sees the
+	// matching closing paren after the inner pair.
+	text := `{{ "{{hub" }} $x := (index (fromConfigMap "ns" (print {{ "{{hub" }} .ManagedClusterName {{ "hub}}" }} ".cm") "config") "key") {{ "hub}}" }}`
+	diags := unclosedParens{}.Run(Context{Text: text, Settings: Settings{}})
+	if len(diags) != 0 {
+		t.Errorf("nested hub-escape pairs around balanced parens should not produce diagnostics, got %d:\n%+v", len(diags), diags)
+	}
+}
+
 func TestUnclosedParens_NoDoubleCountOnNestedHelmInEscape(t *testing.T) {
 	// Helm action inside a managed-escape body has its own unmatched
 	// `(`. The helm-level pass should report it once; the managed-body

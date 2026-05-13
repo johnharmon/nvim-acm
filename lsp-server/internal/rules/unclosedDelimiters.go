@@ -176,10 +176,14 @@ var (
 	}
 )
 
-// scanMarkerPairs walks open/close matches in document order and runs the
-// same state machine as scanGoTemplateDelims. An unclosed opener still in
-// the "open" slot when a new opener arrives is reported as orphan; a
-// closer with nothing open is reported as stray.
+// scanMarkerPairs walks open/close matches in document order and pairs
+// them with a balanced-bracket stack. A close without a corresponding
+// open is reported as a stray closer; opens still on the stack at EOF
+// are reported as unmatched. Stack-based pairing (rather than a single
+// "open slot") is necessary for legitimately nested escape forms like
+// `{{ "{{hub" }} … {{ "{{hub" }} INNER {{ "hub}}" }} … {{ "hub}}" }}`,
+// where a flat state machine misreports the inner pair as orphaning
+// the outer opener.
 func scanMarkerPairs(text string, p markerPair, sev protocol.DiagnosticSeverity, code protocol.IntegerOrString, source string) []protocol.Diagnostic {
 	type marker struct {
 		isOpen     bool
@@ -228,25 +232,20 @@ func scanMarkerPairs(text string, p markerPair, sev protocol.DiagnosticSeverity,
 		})
 	}
 
-	openIdx := -1
-	for i, m := range markers {
+	stack := []marker{}
+	for _, m := range markers {
 		if m.isOpen {
-			if openIdx >= 0 {
-				prev := markers[openIdx]
-				emit(prev.start, prev.end, p.openOrphanMsg)
-			}
-			openIdx = i
+			stack = append(stack, m)
 			continue
 		}
-		if openIdx < 0 {
+		if len(stack) == 0 {
 			emit(m.start, m.end, p.closeOrphanMsg)
 			continue
 		}
-		openIdx = -1
+		stack = stack[:len(stack)-1]
 	}
-	if openIdx >= 0 {
-		prev := markers[openIdx]
-		emit(prev.start, prev.end, p.openOrphanMsg)
+	for _, m := range stack {
+		emit(m.start, m.end, p.openOrphanMsg)
 	}
 	return out
 }

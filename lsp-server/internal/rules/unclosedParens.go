@@ -141,6 +141,21 @@ func scanOrphanParens(text string, start, end int, skipRanges [][2]int) []parenO
 			quote := c
 			i++
 			for i < end && text[i] != quote {
+				// Inside a hub/managed escape body the surrounding string
+				// may contain an embedded helm `{{ … }}` action whose
+				// rendered output becomes part of the string at chart
+				// time. From the source-view we treat the action as
+				// opaque: jump past it without letting its own string
+				// literals (e.g. `"autoshift.io/"`) be mistaken for the
+				// closing quote of the outer string.
+				if skipped, jumpTo := jumpPastSkip(skipRanges, i); skipped {
+					if jumpTo > end {
+						i = end
+					} else {
+						i = jumpTo
+					}
+					continue
+				}
 				if quote == '"' && text[i] == '\\' && i+1 < end {
 					i += 2
 					continue
