@@ -118,10 +118,34 @@ local function get_clients()
   return vim.lsp.get_active_clients({ name = "acm-ls" })
 end
 
+-- alive_client_id returns the cached client id for this root if and only
+-- if Neovim still considers it running. A previous server crash (panic
+-- on a bad document, OOM, etc.) leaves the cache entry pointing at a
+-- stopped client; without this check, a vertical split opened after the
+-- crash would call buf_attach_client against the dead id and silently
+-- get no LSP — the symptom users see as "new files in a split don't get
+-- detected as ACM."
+local function alive_client_id(root)
+  local id = active_clients[root]
+  if id == nil then return nil end
+  local client = vim.lsp.get_client_by_id(id)
+  if client == nil then
+    active_clients[root] = nil
+    return nil
+  end
+  local stopped = client.is_stopped and client:is_stopped() or false
+  if stopped then
+    active_clients[root] = nil
+    return nil
+  end
+  return id
+end
+
 local function start_for_buffer(buf)
   if cfg == nil then return end
   local root = find_root(buf, cfg.root_markers)
-  if active_clients[root] == nil then
+  local id = alive_client_id(root)
+  if id == nil then
     active_clients[root] = vim.lsp.start({
       name = "acm-ls",
       cmd = cfg.cmd,
@@ -135,7 +159,7 @@ local function start_for_buffer(buf)
       end,
     }, { bufnr = buf })
   else
-    vim.lsp.buf_attach_client(buf, active_clients[root])
+    vim.lsp.buf_attach_client(buf, id)
   end
 end
 

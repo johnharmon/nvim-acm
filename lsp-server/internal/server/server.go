@@ -1,7 +1,9 @@
 package server
 
 import (
+	"log"
 	"path/filepath"
+	"runtime/debug"
 	"sync"
 
 	"github.com/acm-ls/lsp-server/internal/catalog"
@@ -279,12 +281,29 @@ func (s *Server) publishDiagnostics(ctx *glsp.Context, uri protocol.DocumentUri)
 
 	diags := []protocol.Diagnostic{}
 	for _, r := range s.rules {
-		diags = append(diags, r.Run(rctx)...)
+		diags = append(diags, runRuleSafely(r, rctx)...)
 	}
 	ctx.Notify("textDocument/publishDiagnostics", protocol.PublishDiagnosticsParams{
 		URI:         uri,
 		Diagnostics: diags,
 	})
+}
+
+// runRuleSafely defers a panic recover around r.Run so one buggy rule
+// (or one pathological document that trips a rule's parser) can't take
+// the whole server process down. A crashed server is much worse than a
+// silently-skipped rule: the language client caches the client id and
+// new buffers reuse it, so a crash here used to manifest as "files I
+// open in a split don't get diagnostics."
+func runRuleSafely(r rules.Rule, ctx rules.Context) (out []protocol.Diagnostic) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			log.Printf("acm-ls: rule %q panicked on %s: %v\n%s",
+				r.ID(), ctx.URI, rec, debug.Stack())
+			out = nil
+		}
+	}()
+	return r.Run(ctx)
 }
 
 func stringPtr(s string) *string { return &s }
